@@ -379,7 +379,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
 
       {/* onboarding — fresh project, no plan yet */}
       {!planned && !running && !loading && (
-        <Panel className="rise mt-6 p-5">
+        <Panel className="rise mt-8 p-5">
           <Eyebrow>How it works</Eyebrow>
           <ol className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-xs text-muted">
             {["Brief", "Plan", "Concept images", "Generate shots", "Assemble cut"].map((step, i, a) => (
@@ -425,7 +425,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
             <Eyebrow>Storyboard · {shots.length} shots</Eyebrow>
             <a
               href="#look-development"
-              className="mt-1 inline-block font-mono text-[0.7rem] text-faint transition-colors hover:text-accent"
+              className="mt-2 inline-block font-mono text-[0.7rem] text-faint transition-colors hover:text-accent"
             >
               Tip: develop a look & promote a frame/character first — it feeds i2v and keeps shots consistent ↓
             </a>
@@ -454,7 +454,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
               <Eyebrow>Cast & style · {characters.length}</Eyebrow>
               <div className="mt-4 flex flex-wrap gap-3">
                 {characters.map((c) => (
-                  <Panel key={c.id} className="flex items-center gap-3 p-2 pr-4">
+                  <Panel key={c.id} className="flex items-center gap-3 p-3">
                     <div className="size-12 shrink-0 overflow-hidden rounded-md bg-bg-soft">
                       {isPlayable(c.reference_image_urls[0]) && (
                         // eslint-disable-next-line @next/next/no-img-element
@@ -474,7 +474,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
           {/* look development */}
           <section id="look-development" className="mt-12 scroll-mt-6">
             <Eyebrow>Look development · {conceptSets.length} sets</Eyebrow>
-            <p className="mt-1 text-xs text-faint">
+            <p className="mt-2 text-xs text-faint">
               Promote a frame as <span className="text-fg">first frame</span> (auto-used by i2v shots) or{" "}
               <span className="text-fg">cast</span> (reusable character for r2v consistency).
             </p>
@@ -506,7 +506,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
             )}
             <div className="mt-4 space-y-4">
               {roughCuts.map((rc, i) => (
-                <Panel key={rc.id} className="rise overflow-hidden p-4" style={{ animationDelay: `${i * 60}ms` }}>
+                <Panel key={rc.id} className="rise overflow-hidden p-5" style={{ animationDelay: `${i * 60}ms` }}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <StatusBadge status={rc.status} />

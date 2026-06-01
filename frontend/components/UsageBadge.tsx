@@ -27,7 +27,7 @@ export default function UsageBadge() {
 
   return (
     <div
-      className="inline-flex items-center gap-2 rounded-full border border-border-hi bg-bg-soft px-3 py-1 font-mono text-[0.7rem]"
+      className="inline-flex items-center gap-1.5 rounded-full border border-border-hi bg-bg-soft px-3 py-1 font-mono text-[0.7rem]"
       title="Today's paid generations · estimated spend"
     >
       <span className="text-faint">today</span>
