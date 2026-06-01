@@ -8,6 +8,7 @@ from fastapi import APIRouter
 
 from app.api import (
     auth,
+    gallery,
     generation,
     images,
     memory,
@@ -28,6 +29,8 @@ api_router.include_router(roughcut.router)
 api_router.include_router(memory.router)
 api_router.include_router(usage.router)
 api_router.include_router(auth.router)  # gated: /me, /rotate-token, /logout
+api_router.include_router(gallery.router)  # gated: publish / unpublish a rough cut
 
 public_router = APIRouter()
 public_router.include_router(auth.public_router)  # /register, /login, /google/*
+public_router.include_router(gallery.public_router)  # /gallery (list + video redirect)

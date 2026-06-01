@@ -1,6 +1,8 @@
-// Typed client for the extrovid backend. Browser-side; shared-token auth.
+// Typed client for the extrovid backend. Browser-side; per-user Bearer token.
 
-import { clearToken, getToken } from "@/lib/auth";
+import { type AuthUser, clearAuth, getToken } from "@/lib/auth";
+
+export type { AuthUser };
 
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE ?? "https://backend-production-8b09.up.railway.app/api";
@@ -17,9 +19,9 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     cache: "no-store",
   });
   if (res.status === 401) {
-    clearToken();
+    clearAuth();
     if (typeof window !== "undefined") window.dispatchEvent(new Event("extrovid-unauthorized"));
-    throw new Error("Unauthorized — please re-enter your access token.");
+    throw new Error("Unauthorized — please sign in again.");
   }
   if (!res.ok) {
     let detail = `Request failed (${res.status})`;
@@ -103,6 +105,17 @@ export type RoughCut = {
   output_asset_id: string | null;
   video_url: string | null;
   shot_version_ids: string[];
+  published: boolean;
+  published_id: string | null;
+};
+
+export type AuthResponse = { token: string; user: AuthUser };
+export type PublicVideo = {
+  id: string;
+  title: string;
+  aspect_ratio: string;
+  published_at: string;
+  stream_url: string;
 };
 
 export type Character = { id: string; name: string; description: string | null; reference_image_urls: string[] };
@@ -117,9 +130,29 @@ export type PipelineResult = {
 
 // ───────────────────────── endpoints ─────────────────────────
 
+// ── auth ──
+export const register = (email: string, password: string) =>
+  api<AuthResponse>("/auth/register", { method: "POST", body: JSON.stringify({ email, password }) });
+export const login = (email: string, password: string) =>
+  api<AuthResponse>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
+export const me = () => api<AuthUser>("/auth/me");
+export const rotateToken = () => api<{ token: string }>("/auth/rotate-token", { method: "POST" });
+export const logout = () => api<void>("/auth/logout", { method: "POST" });
+export const googleLoginUrl = () => `${API_BASE}/auth/google/login`;
+
+// ── gallery ──
+export const listGallery = () => api<PublicVideo[]>("/gallery");
+export const galleryVideoUrl = (publishedId: string) => `${API_BASE}/gallery/${publishedId}/video`;
+export const publishCut = (id: string, seqId: string) =>
+  api<PublicVideo>(`/projects/${id}/rough-cut/${seqId}/publish`, { method: "POST" });
+export const unpublishCut = (id: string, seqId: string) =>
+  api<void>(`/projects/${id}/rough-cut/${seqId}/publish`, { method: "DELETE" });
+
+// ── projects ──
 export const listProjects = () => api<Project[]>("/projects");
-export const createProject = (body: { title: string; aspect_ratio?: string; target_duration_sec?: number }) =>
-  api<Project>("/projects", { method: "POST", body: JSON.stringify(body) });
+export const createProject = (
+  body: { title?: string; aspect_ratio?: string; target_duration_sec?: number } = {},
+) => api<Project>("/projects", { method: "POST", body: JSON.stringify(body) });
 export const getProject = (id: string) => api<Project>(`/projects/${id}`);
 export const deleteProject = (id: string) => api<void>(`/projects/${id}`, { method: "DELETE" });
 

@@ -14,8 +14,10 @@ import {
   listRoughCuts,
   listVersions,
   promoteFrame,
+  publishCut,
   runPipeline,
   selectVersion,
+  unpublishCut,
   type Character,
   type ConceptSet,
   type Project,
@@ -60,6 +62,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
   const [elapsed, setElapsed] = useState(0);
   const [confirmReplace, setConfirmReplace] = useState(false);
   const [assembling, setAssembling] = useState(false);
+  const [publishing, setPublishing] = useState<string | null>(null);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [generating, setGenerating] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -262,6 +265,20 @@ export default function Workspace({ projectId }: { projectId: string }) {
       setError(errMsg(e));
     } finally {
       setAssembling(false);
+    }
+  }
+
+  async function togglePublish(rc: RoughCut) {
+    setPublishing(rc.id);
+    setError(null);
+    try {
+      if (rc.published) await unpublishCut(projectId, rc.id);
+      else await publishCut(projectId, rc.id);
+      setRoughCuts(await listRoughCuts(projectId));
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setPublishing(null);
     }
   }
 
@@ -496,9 +513,24 @@ export default function Workspace({ projectId }: { projectId: string }) {
                       <Pill>{rc.shot_version_ids.length} shots</Pill>
                     </div>
                     {isPlayable(rc.video_url) && (
-                      <a href={rc.video_url} target="_blank" rel="noreferrer" className="font-mono text-xs text-accent hover:underline">
-                        download ↓
-                      </a>
+                      <div className="flex items-center gap-4">
+                        <button
+                          onClick={() => togglePublish(rc)}
+                          disabled={publishing === rc.id}
+                          className={`font-mono text-xs transition-colors disabled:opacity-50 ${
+                            rc.published ? "text-ok hover:text-fail" : "text-muted hover:text-accent"
+                          }`}
+                        >
+                          {publishing === rc.id
+                            ? "…"
+                            : rc.published
+                              ? "● in gallery · unpublish"
+                              : "share to gallery ↗"}
+                        </button>
+                        <a href={rc.video_url} target="_blank" rel="noreferrer" className="font-mono text-xs text-accent hover:underline">
+                          download ↓
+                        </a>
+                      </div>
                     )}
                   </div>
                   {isPlayable(rc.video_url) ? (

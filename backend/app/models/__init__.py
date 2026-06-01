@@ -2,6 +2,7 @@
 
 from app.models.asset import ImageAsset
 from app.models.concept import LookFrame, VisualConceptSet
+from app.models.gallery import PublishedVideo
 from app.models.generation import GenerationJob, ShotVersion
 from app.models.memory import CharacterProfile, StylePack
 from app.models.project import Brief, Project
@@ -24,4 +25,5 @@ __all__ = [
     "CharacterProfile",
     "StylePack",
     "TimelineSequence",
+    "PublishedVideo",
 ]

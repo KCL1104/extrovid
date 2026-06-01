@@ -150,6 +150,16 @@ class RoughCutRead(BaseModel):
     output_asset_id: str | None = None
     video_url: str | None = None
     shot_version_ids: list = []
+    published: bool = False
+    published_id: str | None = None
+
+
+class PublicVideoRead(BaseModel):
+    id: str
+    title: str
+    aspect_ratio: str
+    published_at: datetime
+    stream_url: str
 
 
 class ConceptSetRead(BaseModel):

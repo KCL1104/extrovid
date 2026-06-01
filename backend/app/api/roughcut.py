@@ -7,7 +7,7 @@ from app.api.deps import get_owned_project
 from app.core.db import get_session
 from app.models.timeline import TimelineSequence
 from app.schemas.api import RoughCutRead
-from app.services import rough_cut_service
+from app.services import gallery_service, rough_cut_service
 from app.services.asset_service import asset_url
 
 router = APIRouter(
@@ -16,12 +16,15 @@ router = APIRouter(
 
 
 async def _read(session: AsyncSession, seq: TimelineSequence) -> RoughCutRead:
+    pub = await gallery_service.is_published(session, seq.id)
     return RoughCutRead(
         id=seq.id,
         status=seq.status,
         output_asset_id=seq.output_asset_id,
         video_url=await asset_url(session, seq.output_asset_id),
         shot_version_ids=seq.shot_version_ids,
+        published=pub is not None,
+        published_id=pub.id if pub else None,
     )
 
 
