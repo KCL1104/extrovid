@@ -7,8 +7,9 @@ the whole pipeline and persists everything atomically — this is the Phase-0 ex
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.projects import _get_or_404
+from app.api.deps import get_owned_project
 from app.core.db import get_session
+from app.models.project import Project
 from app.pipeline import orchestrator
 from app.schemas.api import RunRequest, StoryboardRequest, VisualPlansResponse
 from app.schemas.pipeline import (
@@ -19,14 +20,15 @@ from app.schemas.pipeline import (
 )
 from app.services import planning_service
 
-router = APIRouter(prefix="/projects/{project_id}", tags=["pipeline"])
+router = APIRouter(
+    prefix="/projects/{project_id}", tags=["pipeline"], dependencies=[Depends(get_owned_project)]
+)
 
 
 @router.post("/brief", response_model=BriefInput)
 async def generate_brief(
     project_id: str, body: RunRequest, session: AsyncSession = Depends(get_session)
 ):
-    await _get_or_404(session, project_id)
     brief = await orchestrator.run_brief(body.raw_prompt)
     await planning_service.replace_brief(session, project_id, brief)
     await session.commit()
@@ -37,7 +39,6 @@ async def generate_brief(
 async def generate_script(
     project_id: str, brief: BriefInput, session: AsyncSession = Depends(get_session)
 ):
-    await _get_or_404(session, project_id)
     script = await orchestrator.run_script(brief)
     await planning_service.replace_scenes(session, project_id, script)
     await session.commit()
@@ -48,7 +49,6 @@ async def generate_script(
 async def generate_visual_briefs(
     project_id: str, script: ScriptDraft, session: AsyncSession = Depends(get_session)
 ):
-    await _get_or_404(session, project_id)
     plans = [await orchestrator.run_visual_plan(scene) for scene in script.scenes]
     visual_briefs = [p.visual_brief for p in plans]
     concept_specs = [p.concept_set for p in plans]
@@ -63,7 +63,6 @@ async def generate_visual_briefs(
 async def generate_storyboard(
     project_id: str, body: StoryboardRequest, session: AsyncSession = Depends(get_session)
 ):
-    await _get_or_404(session, project_id)
     storyboard = await orchestrator.run_storyboard(
         body.script, [], body.concept_specs, body.target_duration_sec
     )
@@ -75,9 +74,10 @@ async def generate_storyboard(
 
 @router.post("/run", response_model=PipelineResult)
 async def run_full_pipeline(
-    project_id: str, body: RunRequest, session: AsyncSession = Depends(get_session)
+    body: RunRequest,
+    project: Project = Depends(get_owned_project),
+    session: AsyncSession = Depends(get_session),
 ):
-    project = await _get_or_404(session, project_id)
     result = await orchestrator.run_pipeline(BriefInput(raw_prompt=body.raw_prompt))
     await planning_service.persist_pipeline(session, project, result)
     return result

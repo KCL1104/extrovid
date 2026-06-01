@@ -73,10 +73,21 @@ class Settings(BaseSettings):
 
     app_env: str = "local"
 
-    # --- Auth (shared access token; None = auth disabled, for local/dev/tests) ---
+    # --- Auth ---
+    # api_token = the admin master token: unlimited, sees all projects. Per-user accounts
+    # carry their own opaque tokens + caps. (Unset api_token only disables the admin path;
+    # /api still requires a valid per-user token.)
     api_token: str | None = None
+    session_secret: str = "dev-insecure-change-me"  # SessionMiddleware (OAuth state)
+    google_client_id: str | None = None
+    google_client_secret: str | None = None
+    backend_base_url: str = "https://backend-production-8b09.up.railway.app"  # OAuth redirect_uri
+    frontend_base_url: str = "https://frontend-production-4fea.up.railway.app"  # post-callback
+    # Daily caps assigned to a newly-registered (non-admin) account.
+    default_daily_video_cap: int = 3
+    default_daily_image_cap: int = 20
 
-    # --- Cost guardrails (daily caps on paid ops; <= 0 = unlimited) ---
+    # --- Cost guardrails (legacy/global defaults; per-user caps live on the account row) ---
     daily_video_cap: int = 10
     daily_image_cap: int = 40
     # Per-job cost rates (USD) — computed from actual duration/resolution/model at creation.

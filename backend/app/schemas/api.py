@@ -9,10 +9,38 @@ from app.schemas.pipeline import ScriptDraft, VisualBrief, VisualConceptSetSpec
 
 
 class ProjectCreate(BaseModel):
-    title: str = Field(..., min_length=1)
-    owner_id: str = "local-user"
+    # title optional: when blank, the server auto-names it "Project N" for the owner.
+    title: str | None = Field(default=None)
     aspect_ratio: AspectRatio = AspectRatio.R9_16
     target_duration_sec: int = Field(default=20, ge=5, le=120)
+
+
+# --- auth ---
+
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class UserRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    email: str
+    is_admin: bool
+    daily_video_cap: int
+    daily_image_cap: int
+
+
+class AuthResponse(BaseModel):
+    token: str
+    user: UserRead
 
 
 class ProjectUpdate(BaseModel):

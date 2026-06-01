@@ -1,6 +1,6 @@
 """Project CRUD."""
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.asset import ImageAsset
@@ -15,10 +15,19 @@ from app.schemas.api import ProjectCreate, ProjectUpdate
 from app.services import asset_service
 
 
-async def create_project(session: AsyncSession, data: ProjectCreate) -> Project:
+async def create_project(session: AsyncSession, owner_id: str, data: ProjectCreate) -> Project:
+    title = (data.title or "").strip()
+    if not title:
+        # Auto-name "Project N" where N = owner's existing project count + 1.
+        count = (
+            await session.execute(
+                select(func.count()).select_from(Project).where(Project.owner_id == owner_id)
+            )
+        ).scalar_one()
+        title = f"Project {count + 1}"
     project = Project(
-        title=data.title,
-        owner_id=data.owner_id,
+        title=title,
+        owner_id=owner_id,
         aspect_ratio=data.aspect_ratio.value,
         target_duration_sec=data.target_duration_sec,
     )
@@ -32,8 +41,13 @@ async def get_project(session: AsyncSession, project_id: str) -> Project | None:
     return await session.get(Project, project_id)
 
 
-async def list_projects(session: AsyncSession) -> list[Project]:
-    res = await session.execute(select(Project).order_by(Project.created_at.desc()))
+async def list_projects(
+    session: AsyncSession, *, owner_id: str | None, is_admin: bool
+) -> list[Project]:
+    stmt = select(Project).order_by(Project.created_at.desc())
+    if not is_admin:  # admin sees every project; a user sees only their own
+        stmt = stmt.where(Project.owner_id == owner_id)
+    res = await session.execute(stmt)
     return list(res.scalars().all())
 
 

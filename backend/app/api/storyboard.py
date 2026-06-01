@@ -3,23 +3,23 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.projects import _get_or_404
+from app.api.deps import get_owned_project
 from app.core.db import get_session
 from app.schemas.api import ConceptSetRead, SceneRead, ShotRead
 from app.services import asset_service, planning_service
 
-router = APIRouter(prefix="/projects/{project_id}", tags=["reads"])
+router = APIRouter(
+    prefix="/projects/{project_id}", tags=["reads"], dependencies=[Depends(get_owned_project)]
+)
 
 
 @router.get("/script", response_model=list[SceneRead])
 async def get_script(project_id: str, session: AsyncSession = Depends(get_session)):
-    await _get_or_404(session, project_id)
     return await planning_service.list_scenes(session, project_id)
 
 
 @router.get("/concept-sets", response_model=list[ConceptSetRead])
 async def get_concept_sets(project_id: str, session: AsyncSession = Depends(get_session)):
-    await _get_or_404(session, project_id)
     pairs = await planning_service.list_concept_sets(session, project_id)
     return [
         ConceptSetRead(
@@ -36,5 +36,4 @@ async def get_concept_sets(project_id: str, session: AsyncSession = Depends(get_
 
 @router.get("/storyboard", response_model=list[ShotRead])
 async def get_storyboard(project_id: str, session: AsyncSession = Depends(get_session)):
-    await _get_or_404(session, project_id)
     return await planning_service.list_shots(session, project_id)

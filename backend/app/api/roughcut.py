@@ -3,14 +3,16 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.projects import _get_or_404
+from app.api.deps import get_owned_project
 from app.core.db import get_session
 from app.models.timeline import TimelineSequence
 from app.schemas.api import RoughCutRead
 from app.services import rough_cut_service
 from app.services.asset_service import asset_url
 
-router = APIRouter(prefix="/projects/{project_id}", tags=["rough-cut"])
+router = APIRouter(
+    prefix="/projects/{project_id}", tags=["rough-cut"], dependencies=[Depends(get_owned_project)]
+)
 
 
 async def _read(session: AsyncSession, seq: TimelineSequence) -> RoughCutRead:
@@ -25,7 +27,6 @@ async def _read(session: AsyncSession, seq: TimelineSequence) -> RoughCutRead:
 
 @router.post("/rough-cut", response_model=RoughCutRead)
 async def assemble(project_id: str, session: AsyncSession = Depends(get_session)):
-    await _get_or_404(session, project_id)
     try:
         seq = await rough_cut_service.assemble_rough_cut(session, project_id)
     except LookupError as e:
@@ -35,6 +36,5 @@ async def assemble(project_id: str, session: AsyncSession = Depends(get_session)
 
 @router.get("/rough-cut", response_model=list[RoughCutRead])
 async def list_rough_cuts(project_id: str, session: AsyncSession = Depends(get_session)):
-    await _get_or_404(session, project_id)
     seqs = await rough_cut_service.list_rough_cuts(session, project_id)
     return [await _read(session, s) for s in seqs]

@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.auth import AuthCtx
 from app.core.config import get_settings
 from app.core.logging import log
 from app.core.pricing import video_cost_usd
@@ -94,12 +95,14 @@ async def submit_shot(
     session: AsyncSession,
     project_id: str,
     shot: Shot,
+    *,
+    auth: AuthCtx,
     first_frame_asset_id: str | None = None,
     reference_asset_ids: list[str] | None = None,
     character_id: str | None = None,
 ) -> tuple[ShotVersion, GenerationJob]:
     settings = get_settings()
-    await assert_within_cap(session, "video", 1)
+    await assert_within_cap(session, "video", 1, auth=auth)
     project = await session.get(Project, project_id)
     ratio = _ratio_for(project.aspect_ratio if project else "")
     duration = max(2, min(15, round(shot.duration_sec)))
@@ -177,9 +180,11 @@ async def submit_shot_edit(
     shot: Shot,
     source_version_id: str,
     instruction: str,
+    *,
+    auth: AuthCtx,
 ) -> tuple[ShotVersion, GenerationJob]:
     settings = get_settings()
-    await assert_within_cap(session, "video", 1)
+    await assert_within_cap(session, "video", 1, auth=auth)
     source = await session.get(ShotVersion, source_version_id)
     if source is None or source.shot_id != shot.id or not source.output_asset_id:
         raise LookupError("source version has no video to edit")

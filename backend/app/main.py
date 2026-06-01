@@ -7,9 +7,10 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.middleware.sessions import SessionMiddleware
 
-from app.api.router import api_router
-from app.core.auth import CapExceeded, require_token
+from app.api.router import api_router, public_router
+from app.core.auth import CapExceeded, current_auth
 from app.core.config import get_settings
 from app.core.db import init_db
 from app.core.logging import configure_logging
@@ -57,13 +58,24 @@ def create_app() -> FastAPI:
         summary="Milestone 1: Brief -> Script -> Visual Brief -> Concept Set -> Storyboard.",
         lifespan=lifespan,
     )
+    settings = get_settings()
+    # SessionMiddleware added first → CORS (added last) stays outermost. The session cookie
+    # only carries transient OAuth state during the Google redirect; the API itself is
+    # Bearer-token based, so CORS needs no credentials.
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=settings.session_secret,
+        same_site="lax",
+        https_only=False,
+    )
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # single-user M1; no cookies/credentials
+        allow_origins=["*"],  # Bearer-token auth, no cookies
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    app.include_router(api_router, prefix="/api", dependencies=[Depends(require_token)])
+    app.include_router(api_router, prefix="/api", dependencies=[Depends(current_auth)])
+    app.include_router(public_router, prefix="/api")  # register/login/google — no auth gate
 
     @app.exception_handler(CapExceeded)
     async def _cap_exceeded(_: Request, exc: CapExceeded) -> JSONResponse:

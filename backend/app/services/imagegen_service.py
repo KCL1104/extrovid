@@ -7,6 +7,7 @@ image rate limits. Each frame's image_asset_id is filled and the set is marked G
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.auth import AuthCtx
 from app.models.concept import LookFrame, VisualConceptSet
 from app.models.enums import ConceptSetStatus
 from app.models.project import Project
@@ -16,7 +17,12 @@ from app.services.usage_service import assert_within_cap
 
 
 async def generate_images_for_concept_set(
-    session: AsyncSession, project_id: str, concept_set_id: str, limit: int | None = None
+    session: AsyncSession,
+    project_id: str,
+    concept_set_id: str,
+    *,
+    auth: AuthCtx,
+    limit: int | None = None,
 ) -> list[LookFrame]:
     cs = await session.get(VisualConceptSet, concept_set_id)
     if cs is None or cs.project_id != project_id:
@@ -34,7 +40,7 @@ async def generate_images_for_concept_set(
     if limit is not None:
         todo = todo[:limit]
     if todo:
-        await assert_within_cap(session, "image", len(todo))
+        await assert_within_cap(session, "image", len(todo), auth=auth)
 
     for frame in todo:
         result = await generate_image(frame.prompt, size)

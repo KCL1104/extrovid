@@ -8,8 +8,10 @@ from app.models.project import Brief, Project
 from app.models.scene import Scene
 from app.models.shot import Shot
 from app.models.timeline import TimelineSequence
+from app.models.user import User
 
 __all__ = [
+    "User",
     "Project",
     "Brief",
     "Scene",

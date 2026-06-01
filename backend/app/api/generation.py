@@ -4,7 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.projects import _get_or_404
+from app.api.deps import get_owned_project
+from app.core.auth import AuthCtx, current_auth
 from app.core.db import get_session
 from app.models.generation import GenerationJob, ShotVersion
 from app.models.shot import Shot
@@ -12,7 +13,9 @@ from app.schemas.api import EditShotRequest, GenerateShotRequest, ShotVersionRea
 from app.services import generate_service
 from app.services.asset_service import asset_url
 
-router = APIRouter(prefix="/projects/{project_id}", tags=["generation"])
+router = APIRouter(
+    prefix="/projects/{project_id}", tags=["generation"], dependencies=[Depends(get_owned_project)]
+)
 
 
 async def _shot_or_404(session: AsyncSession, project_id: str, shot_id: str) -> Shot:
@@ -44,14 +47,15 @@ async def generate_shot(
     project_id: str,
     shot_id: str,
     body: GenerateShotRequest | None = None,
+    auth: AuthCtx = Depends(current_auth),
     session: AsyncSession = Depends(get_session),
 ):
-    await _get_or_404(session, project_id)
     shot = await _shot_or_404(session, project_id, shot_id)
     version, job = await generate_service.submit_shot(
         session,
         project_id,
         shot,
+        auth=auth,
         first_frame_asset_id=body.first_frame_asset_id if body else None,
         reference_asset_ids=body.reference_asset_ids if body else None,
         character_id=body.character_id if body else None,
@@ -63,7 +67,6 @@ async def generate_shot(
 async def list_shot_versions(
     project_id: str, shot_id: str, session: AsyncSession = Depends(get_session)
 ):
-    await _get_or_404(session, project_id)
     await _shot_or_404(session, project_id, shot_id)
     versions = (
         (await session.execute(select(ShotVersion).where(ShotVersion.shot_id == shot_id)))
@@ -91,13 +94,13 @@ async def edit_version(
     shot_id: str,
     version_id: str,
     body: EditShotRequest,
+    auth: AuthCtx = Depends(current_auth),
     session: AsyncSession = Depends(get_session),
 ):
-    await _get_or_404(session, project_id)
     shot = await _shot_or_404(session, project_id, shot_id)
     try:
         version, job = await generate_service.submit_shot_edit(
-            session, project_id, shot, version_id, body.instruction
+            session, project_id, shot, version_id, body.instruction, auth=auth
         )
     except LookupError as e:
         raise HTTPException(status_code=400, detail=str(e)) from None
@@ -108,7 +111,6 @@ async def edit_version(
 async def select_version(
     project_id: str, shot_id: str, version_id: str, session: AsyncSession = Depends(get_session)
 ):
-    await _get_or_404(session, project_id)
     await _shot_or_404(session, project_id, shot_id)
     siblings = (
         (await session.execute(select(ShotVersion).where(ShotVersion.shot_id == shot_id)))
@@ -136,7 +138,6 @@ async def select_version(
 
 @router.post("/jobs/{job_id}/refresh", response_model=ShotVersionRead)
 async def refresh_job(project_id: str, job_id: str, session: AsyncSession = Depends(get_session)):
-    await _get_or_404(session, project_id)
     job = await session.get(GenerationJob, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="job not found")

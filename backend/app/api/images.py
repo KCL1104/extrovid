@@ -3,13 +3,16 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.projects import _get_or_404
+from app.api.deps import get_owned_project
+from app.core.auth import AuthCtx, current_auth
 from app.core.db import get_session
 from app.models.enums import PromotedAs
 from app.schemas.api import LookFrameRead, PromoteRequest
 from app.services import asset_service, imagegen_service, promote_service
 
-router = APIRouter(prefix="/projects/{project_id}", tags=["images"])
+router = APIRouter(
+    prefix="/projects/{project_id}", tags=["images"], dependencies=[Depends(get_owned_project)]
+)
 
 
 @router.post("/concept-sets/{concept_set_id}/generate-images", response_model=list[LookFrameRead])
@@ -17,12 +20,12 @@ async def generate_concept_images(
     project_id: str,
     concept_set_id: str,
     limit: int | None = None,
+    auth: AuthCtx = Depends(current_auth),
     session: AsyncSession = Depends(get_session),
 ):
-    await _get_or_404(session, project_id)
     try:
         frames = await imagegen_service.generate_images_for_concept_set(
-            session, project_id, concept_set_id, limit=limit
+            session, project_id, concept_set_id, auth=auth, limit=limit
         )
     except LookupError:
         raise HTTPException(status_code=404, detail="concept set not found") from None
@@ -36,7 +39,6 @@ async def promote_frame(
     body: PromoteRequest,
     session: AsyncSession = Depends(get_session),
 ):
-    await _get_or_404(session, project_id)
     if body.target == PromotedAs.NONE:
         raise HTTPException(status_code=422, detail="target must not be 'none'")
     try:
