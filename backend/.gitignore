@@ -1,0 +1,11 @@
+# Keeps secrets and bulky/local files out of the Railway upload archive.
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.env
+.env.*
+!.env.example
+dev.db

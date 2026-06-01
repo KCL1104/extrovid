@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+**/.venv/
+.ruff_cache/
+.pytest_cache/
+*.egg-info/
+
+# Env / secrets — never commit real connection strings or API keys
+.env
+.env.*
+!.env.example
+**/.env
+!**/.env.example
+
+# Node / frontend
+node_modules/
+.next/
+
+# OS
+.DS_Store

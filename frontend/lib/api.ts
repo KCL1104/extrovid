@@ -1,0 +1,179 @@
+// Typed client for the extrovid backend. Browser-side; shared-token auth.
+
+import { clearToken, getToken } from "@/lib/auth";
+
+export const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE ?? "https://backend-production-8b09.up.railway.app/api";
+
+async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init?.headers ?? {}),
+    },
+    cache: "no-store",
+  });
+  if (res.status === 401) {
+    clearToken();
+    if (typeof window !== "undefined") window.dispatchEvent(new Event("extrovid-unauthorized"));
+    throw new Error("Unauthorized — please re-enter your access token.");
+  }
+  if (!res.ok) {
+    let detail = `Request failed (${res.status})`;
+    try {
+      const body = await res.json();
+      const d = body.detail;
+      if (typeof d === "string") detail = d;
+      else if (Array.isArray(d)) detail = d.map((x) => x?.msg ?? JSON.stringify(x)).join("; ");
+    } catch {}
+    throw new Error(detail);
+  }
+  if (res.status === 204) return undefined as T;
+  return res.json() as Promise<T>;
+}
+
+// ───────────────────────── types ─────────────────────────
+
+export type Project = {
+  id: string;
+  title: string;
+  owner_id: string;
+  status: string;
+  aspect_ratio: string;
+  target_duration_sec: number;
+  created_at: string;
+};
+
+export type SceneBeat = { order: number; description: string; narration?: string | null; dialogue?: string | null };
+export type Scene = { id: string; order: number; title: string; summary: string; beats: SceneBeat[]; est_duration_sec: number };
+
+export type LookFrame = {
+  id: string;
+  prompt: string;
+  tags: string[];
+  promoted_as: string;
+  selected: boolean;
+  image_asset_id: string | null;
+  image_url: string | null;
+};
+export type ConceptSet = {
+  id: string;
+  scene_order: number;
+  brief: string;
+  type: string;
+  status: string;
+  look_frames: LookFrame[];
+};
+
+export type CameraSpec = { shot_size: string; angle: string; movement: string; lens?: string | null };
+export type PerformanceSpec = { subject: string; action: string; emotion?: string | null };
+export type Shot = {
+  id: string;
+  order: number;
+  scene_order: number;
+  purpose: string;
+  duration_sec: number;
+  beat: string;
+  camera_spec: CameraSpec;
+  performance_spec: PerformanceSpec;
+  preferred_model: string;
+  acceptance_rules: string[];
+  transition: string;
+};
+
+export type ShotVersion = {
+  id: string;
+  shot_id: string;
+  model: string | null;
+  status: string;
+  selected: boolean;
+  output_asset_id: string | null;
+  video_url: string | null;
+  job_id: string | null;
+  job_status: string | null;
+  failure_reason: string | null;
+};
+
+export type RoughCut = {
+  id: string;
+  status: string;
+  output_asset_id: string | null;
+  video_url: string | null;
+  shot_version_ids: string[];
+};
+
+export type Character = { id: string; name: string; description: string | null; reference_image_urls: string[] };
+export type StylePack = { id: string; label: string; image_urls: string[] };
+
+export type PipelineResult = {
+  brief: { product?: string; target_duration_sec: number; platform: string; audience?: string };
+  script: { logline: string; scenes: { order: number; title: string }[] };
+  storyboard: { scenes: { scene_order: number; shots: Shot[] }[] };
+  concept_specs: unknown[];
+};
+
+// ───────────────────────── endpoints ─────────────────────────
+
+export const listProjects = () => api<Project[]>("/projects");
+export const createProject = (body: { title: string; aspect_ratio?: string; target_duration_sec?: number }) =>
+  api<Project>("/projects", { method: "POST", body: JSON.stringify(body) });
+export const getProject = (id: string) => api<Project>(`/projects/${id}`);
+export const deleteProject = (id: string) => api<void>(`/projects/${id}`, { method: "DELETE" });
+
+export const runPipeline = (id: string, raw_prompt: string) =>
+  api<PipelineResult>(`/projects/${id}/run`, { method: "POST", body: JSON.stringify({ raw_prompt }) });
+
+export const getScript = (id: string) => api<Scene[]>(`/projects/${id}/script`);
+export const getConceptSets = (id: string) => api<ConceptSet[]>(`/projects/${id}/concept-sets`);
+export const getStoryboard = (id: string) => api<Shot[]>(`/projects/${id}/storyboard`);
+
+export const generateImages = (id: string, csId: string, limit?: number) =>
+  api<LookFrame[]>(`/projects/${id}/concept-sets/${csId}/generate-images${limit ? `?limit=${limit}` : ""}`, {
+    method: "POST",
+  });
+export const promoteFrame = (id: string, frameId: string, target: string, name?: string) =>
+  api<{ frame_id: string; promoted_as: string }>(`/projects/${id}/look-frames/${frameId}/promote`, {
+    method: "POST",
+    body: JSON.stringify({ target, name }),
+  });
+
+export const generateShot = (
+  id: string,
+  shotId: string,
+  opts?: { first_frame_asset_id?: string; reference_asset_ids?: string[]; character_id?: string },
+) =>
+  api<ShotVersion>(`/projects/${id}/shots/${shotId}/generate`, {
+    method: "POST",
+    body: JSON.stringify(opts ?? {}),
+  });
+export const listVersions = (id: string, shotId: string) =>
+  api<ShotVersion[]>(`/projects/${id}/shots/${shotId}/versions`);
+export const selectVersion = (id: string, shotId: string, versionId: string) =>
+  api<ShotVersion>(`/projects/${id}/shots/${shotId}/versions/${versionId}/select`, { method: "POST" });
+export const editVersion = (id: string, shotId: string, versionId: string, instruction: string) =>
+  api<ShotVersion>(`/projects/${id}/shots/${shotId}/versions/${versionId}/edit`, {
+    method: "POST",
+    body: JSON.stringify({ instruction }),
+  });
+export const refreshJob = (id: string, jobId: string) =>
+  api<ShotVersion>(`/projects/${id}/jobs/${jobId}/refresh`, { method: "POST" });
+
+export const assembleRoughCut = (id: string) =>
+  api<RoughCut>(`/projects/${id}/rough-cut`, { method: "POST" });
+export const listRoughCuts = (id: string) => api<RoughCut[]>(`/projects/${id}/rough-cut`);
+
+export const listCharacters = (id: string) => api<Character[]>(`/projects/${id}/characters`);
+export const listStylePacks = (id: string) => api<StylePack[]>(`/projects/${id}/style-packs`);
+
+export type Usage = {
+  videos_today: number;
+  images_today: number;
+  video_cap: number;
+  image_cap: number;
+  failed_today: number;
+  est_spend_usd: number;
+};
+export const getUsage = () => api<Usage>("/usage");

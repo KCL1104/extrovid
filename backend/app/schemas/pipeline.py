@@ -1,0 +1,222 @@
+"""Locked pipeline I/O schemas — the #1 deliverable of Milestone 1.
+
+These plain Pydantic models are both the agent ``output_type`` contracts and the API
+request/response bodies. They are deliberately separate from the SQLModel DB tables
+(``app.models``) so ORM/session concerns never leak into agent output types.
+
+Validation rules encode the spec's acceptance constraints:
+- storyboard: 5-10 shots total, globally contiguous order, per-shot duration <= 15s
+- concept set: 4-8 candidate look frames, at most one pre-selected
+- shots may only be routed to t2v/i2v in Milestone 1 (r2v/videoedit reserved)
+"""
+
+from __future__ import annotations
+
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from app.models.enums import (
+    MAX_CONCEPT_FRAMES,
+    MAX_SHOTS,
+    MIN_CONCEPT_FRAMES,
+    MIN_SHOTS,
+    PLANNABLE_MODELS_M1,
+    AspectRatio,
+    ConceptSetStatus,
+    ConceptSetType,
+    PreferredModel,
+    PromotedAs,
+    ShotTransition,
+)
+
+# --------------------------------------------------------------------------- #
+# Stage 0 — Brief
+# --------------------------------------------------------------------------- #
+
+
+class BriefInput(BaseModel):
+    """User intent. ``raw_prompt`` is the only hard requirement; BriefAgent fills the rest."""
+
+    raw_prompt: str = Field(..., min_length=1, description="Free text the user typed.")
+    product: str | None = None
+    story: str | None = None
+    platform: str = Field(default="generic", description="tiktok / youtube / instagram / generic")
+    target_duration_sec: int = Field(default=20, ge=5, le=120)
+    aspect_ratio: AspectRatio = AspectRatio.R9_16
+    style: str | None = None
+    audience: str | None = None
+
+
+# --------------------------------------------------------------------------- #
+# Stage 1 — Script
+# --------------------------------------------------------------------------- #
+
+
+class SceneBeat(BaseModel):
+    order: int = Field(..., ge=0)
+    description: str = Field(..., min_length=1)
+    narration: str | None = None
+    dialogue: str | None = None
+
+
+class SceneDraft(BaseModel):
+    order: int = Field(..., ge=0)
+    title: str = Field(..., min_length=1)
+    summary: str = Field(..., min_length=1)
+    beats: list[SceneBeat] = Field(..., min_length=1)
+    est_duration_sec: float = Field(..., gt=0)
+
+
+class ScriptDraft(BaseModel):
+    logline: str = Field(..., min_length=1)
+    scenes: list[SceneDraft] = Field(..., min_length=1, max_length=8)
+
+    @model_validator(mode="after")
+    def _scene_orders_unique(self) -> ScriptDraft:
+        orders = [s.order for s in self.scenes]
+        if len(set(orders)) != len(orders):
+            raise ValueError("scene.order values must be unique")
+        return self
+
+
+# --------------------------------------------------------------------------- #
+# Stage 2 — Visual brief + concept set spec (per scene)
+# --------------------------------------------------------------------------- #
+
+
+class VisualBrief(BaseModel):
+    scene_order: int = Field(..., ge=0)
+    visual_style: str = Field(..., min_length=1)
+    mood: str = Field(..., min_length=1)
+    palette: list[str] = Field(..., min_length=1, description="Hex or named colors.")
+    lighting: str = Field(..., min_length=1)
+    camera_language: str = Field(..., min_length=1)
+    character_notes: str | None = None
+    environment_notes: str | None = None
+    negative_rules: list[str] = Field(default_factory=list)
+
+
+class PlannedLookFrame(BaseModel):
+    """A planned concept image (prompt only — no image is generated in Milestone 1).
+
+    ``image_asset_id`` stays ``None`` this milestone; it becomes a real asset id once the
+    Qwen-Image layer ships.
+    """
+
+    prompt: str = Field(..., min_length=1)
+    tags: list[str] = Field(default_factory=list)
+    type: ConceptSetType
+    promoted_as: PromotedAs = PromotedAs.NONE
+    selected: bool = False
+    image_asset_id: str | None = None
+
+
+class VisualConceptSetSpec(BaseModel):
+    scene_order: int = Field(..., ge=0)
+    brief: str = Field(..., min_length=1, description="Short text brief that drove the set.")
+    type: ConceptSetType
+    status: ConceptSetStatus = ConceptSetStatus.PLANNED
+    candidate_look_frames: list[PlannedLookFrame] = Field(
+        ..., min_length=MIN_CONCEPT_FRAMES, max_length=MAX_CONCEPT_FRAMES
+    )
+
+    @model_validator(mode="after")
+    def _at_most_one_selected(self) -> VisualConceptSetSpec:
+        if sum(1 for f in self.candidate_look_frames if f.selected) > 1:
+            raise ValueError("at most one look frame may be pre-selected")
+        return self
+
+
+class SceneVisualPlan(BaseModel):
+    """VisualDevelopmentAgent output for a single scene: brief + concept set together."""
+
+    visual_brief: VisualBrief
+    concept_set: VisualConceptSetSpec
+
+    @model_validator(mode="after")
+    def _scene_orders_match(self) -> SceneVisualPlan:
+        if self.visual_brief.scene_order != self.concept_set.scene_order:
+            raise ValueError("visual_brief and concept_set must share the same scene_order")
+        return self
+
+
+# --------------------------------------------------------------------------- #
+# Stage 3 — Storyboard (executable shot list)
+# --------------------------------------------------------------------------- #
+
+
+class CameraSpec(BaseModel):
+    shot_size: str = Field(..., min_length=1, description="ECU/CU/MS/WS/EWS, etc.")
+    angle: str = Field(..., min_length=1, description="eye-level/low/high/dutch, etc.")
+    movement: str = Field(..., min_length=1, description="static/pan/tilt/dolly/handheld, etc.")
+    lens: str | None = None
+
+
+class PerformanceSpec(BaseModel):
+    subject: str = Field(..., min_length=1)
+    action: str = Field(..., min_length=1)
+    emotion: str | None = None
+
+
+class ShotDTO(BaseModel):
+    order: int = Field(..., ge=0, description="Global order across the whole storyboard.")
+    scene_order: int = Field(..., ge=0)
+    purpose: str = Field(..., min_length=1)
+    duration_sec: float = Field(..., gt=0, le=15)
+    beat: str = Field(..., min_length=1)
+    camera_spec: CameraSpec
+    performance_spec: PerformanceSpec
+    preferred_model: PreferredModel = PreferredModel.T2V
+    acceptance_rules: list[str] = Field(..., min_length=1)
+    reference_look_frame_ids: list[str] = Field(default_factory=list)
+    transition: ShotTransition = ShotTransition.CUT
+
+    @field_validator("preferred_model")
+    @classmethod
+    def _plannable_in_m1(cls, v: PreferredModel) -> PreferredModel:
+        if v not in PLANNABLE_MODELS_M1:
+            allowed = sorted(m.value for m in PLANNABLE_MODELS_M1)
+            raise ValueError(f"Milestone 1 only plans {allowed}; got {v.value}")
+        return v
+
+
+class StoryboardScene(BaseModel):
+    scene_order: int = Field(..., ge=0)
+    shots: list[ShotDTO] = Field(..., min_length=1)
+
+
+class Storyboard(BaseModel):
+    scenes: list[StoryboardScene] = Field(..., min_length=1)
+
+    @property
+    def all_shots(self) -> list[ShotDTO]:
+        return [shot for scene in self.scenes for shot in scene.shots]
+
+    @property
+    def total_duration_sec(self) -> float:
+        return sum(shot.duration_sec for shot in self.all_shots)
+
+    @model_validator(mode="after")
+    def _shot_count_and_contiguous_order(self) -> Storyboard:
+        shots = self.all_shots
+        n = len(shots)
+        if not (MIN_SHOTS <= n <= MAX_SHOTS):
+            raise ValueError(f"total shot count must be {MIN_SHOTS}..{MAX_SHOTS}, got {n}")
+        orders = sorted(shot.order for shot in shots)
+        if orders != list(range(n)):
+            raise ValueError(
+                f"global shot.order must be 0..{n - 1} contiguous & unique, got {orders}"
+            )
+        return self
+
+
+# --------------------------------------------------------------------------- #
+# Aggregate result of the full pipeline
+# --------------------------------------------------------------------------- #
+
+
+class PipelineResult(BaseModel):
+    brief: BriefInput
+    script: ScriptDraft
+    visual_briefs: list[VisualBrief]
+    concept_specs: list[VisualConceptSetSpec]
+    storyboard: Storyboard
