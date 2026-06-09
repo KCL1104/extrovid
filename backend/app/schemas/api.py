@@ -153,6 +153,7 @@ class ShotVersionRead(BaseModel):
     shot_id: str
     parent_version_id: str | None = None
     model: str | None = None
+    prompt: str | None = None  # the exact prompt that produced this take
     status: str
     selected: bool = False
     output_asset_id: str | None = None

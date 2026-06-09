@@ -11,8 +11,12 @@ export default function Shell({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
 
-  // Close the drawer whenever navigation lands on a new route.
-  useEffect(() => setOpen(false), [pathname]);
+  // Close the drawer whenever navigation lands on a new route (adjust-during-render).
+  const [prevPath, setPrevPath] = useState(pathname);
+  if (prevPath !== pathname) {
+    setPrevPath(pathname);
+    setOpen(false);
+  }
 
   // While the drawer is open, lock background scroll and let Escape close it.
   useEffect(() => {

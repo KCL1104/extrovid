@@ -24,13 +24,10 @@ export default function Dashboard() {
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const router = useRouter();
 
-  async function load() {
-    try {
-      setProjects(await listProjects());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }
+  const load = () =>
+    listProjects()
+      .then(setProjects)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   useEffect(() => {
     load();
   }, []);
@@ -194,11 +191,39 @@ export default function Dashboard() {
                         </button>
                       )}
                     </div>
-                    <div className="mt-4 flex items-center gap-2">
+                    <div className="mt-4 flex flex-wrap items-center gap-2">
                       <StatusBadge status={p.status} />
                       <Pill>{p.aspect_ratio}</Pill>
                       <Pill>{p.target_duration_sec}s</Pill>
                     </div>
+                    {p.stats && p.stats.shots > 0 && (
+                      <div className="mt-3 border-t border-border pt-3">
+                        <div className="flex items-center justify-between font-mono text-[0.65rem] text-faint">
+                          <span>
+                            {p.stats.rendered_shots}/{p.stats.shots} shots rendered
+                          </span>
+                          <span>
+                            {p.stats.scenes} scenes
+                            {p.stats.cuts > 0 ? ` · ${p.stats.cuts} cut${p.stats.cuts > 1 ? "s" : ""}` : ""}
+                          </span>
+                        </div>
+                        <div
+                          className="mt-1.5 h-1 overflow-hidden rounded-full bg-bg-soft"
+                          role="progressbar"
+                          aria-label="Shots rendered"
+                          aria-valuemin={0}
+                          aria-valuemax={p.stats.shots}
+                          aria-valuenow={p.stats.rendered_shots}
+                        >
+                          <div
+                            className="h-full rounded-full bg-accent/70 transition-all"
+                            style={{
+                              width: `${Math.round((p.stats.rendered_shots / Math.max(1, p.stats.shots)) * 100)}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </Panel>
                 </Link>
               ))}

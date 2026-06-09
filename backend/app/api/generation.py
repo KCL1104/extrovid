@@ -37,6 +37,7 @@ async def _version_read(
         shot_id=version.shot_id,
         parent_version_id=version.parent_version_id,
         model=version.model,
+        prompt=version.prompt,
         status=version.status,
         selected=version.selected,
         output_asset_id=version.output_asset_id,

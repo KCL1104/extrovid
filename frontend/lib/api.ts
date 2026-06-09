@@ -39,6 +39,13 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
 // ───────────────────────── types ─────────────────────────
 
+export type ProjectStats = {
+  scenes: number;
+  shots: number;
+  rendered_shots: number;
+  cuts: number;
+};
+
 export type Project = {
   id: string;
   title: string;
@@ -47,6 +54,7 @@ export type Project = {
   aspect_ratio: string;
   target_duration_sec: number;
   created_at: string;
+  stats?: ProjectStats | null;
 };
 
 export type SceneBeat = { order: number; description: string; narration?: string | null; dialogue?: string | null };
@@ -60,6 +68,18 @@ export type LookFrame = {
   selected: boolean;
   image_asset_id: string | null;
   image_url: string | null;
+  parent_frame_id?: string | null;
+};
+export type VisualBrief = {
+  scene_order: number;
+  visual_style: string;
+  mood: string;
+  palette: string[];
+  lighting: string;
+  camera_language: string;
+  character_notes?: string | null;
+  environment_notes?: string | null;
+  negative_rules?: string[];
 };
 export type ConceptSet = {
   id: string;
@@ -67,6 +87,7 @@ export type ConceptSet = {
   brief: string;
   type: string;
   status: string;
+  visual_brief?: VisualBrief | null;
   look_frames: LookFrame[];
 };
 
@@ -86,18 +107,51 @@ export type Shot = {
   transition: string;
 };
 
+export type ReviewSuggestion = { kind: "edit" | "retake"; instruction: string };
+export type Review = {
+  verdict: "pass" | "revise";
+  score: number;
+  notes: string[];
+  suggestions: ReviewSuggestion[];
+};
+
 export type ShotVersion = {
   id: string;
   shot_id: string;
+  parent_version_id?: string | null;
   model: string | null;
+  prompt?: string | null;
   status: string;
   selected: boolean;
   output_asset_id: string | null;
   video_url: string | null;
+  thumbnail_url?: string | null;
+  duration_sec?: number | null;
+  score?: number | null;
+  review?: Review | null;
+  routing_note?: string | null;
   job_id: string | null;
   job_status: string | null;
   failure_reason: string | null;
 };
+
+export type Job = {
+  id: string;
+  status: string;
+  provider: string | null;
+  model: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  failure_reason: string | null;
+  cost_usd: number;
+  shot_id: string;
+  shot_order: number;
+  shot_purpose: string;
+  version_id: string;
+  thumbnail_url: string | null;
+};
+
+export type ClipSpec = { shot_version_id: string; in_sec?: number; out_sec?: number | null };
 
 export type RoughCut = {
   id: string;
@@ -105,6 +159,9 @@ export type RoughCut = {
   output_asset_id: string | null;
   video_url: string | null;
   shot_version_ids: string[];
+  clips?: ClipSpec[] | null;
+  options?: { captions?: boolean; music?: boolean } | null;
+  created_at?: string | null;
   published: boolean;
   published_id: string | null;
 };
@@ -120,6 +177,28 @@ export type PublicVideo = {
 
 export type Character = { id: string; name: string; description: string | null; reference_image_urls: string[] };
 export type StylePack = { id: string; label: string; image_urls: string[] };
+
+export type BriefInput = {
+  raw_prompt: string;
+  product?: string | null;
+  story?: string | null;
+  platform: string;
+  target_duration_sec: number;
+  aspect_ratio: string;
+  style?: string | null;
+  audience?: string | null;
+};
+export type ScriptDraft = {
+  logline: string;
+  scenes: {
+    order: number;
+    title: string;
+    summary: string;
+    beats: SceneBeat[];
+    est_duration_sec: number;
+  }[];
+};
+export type VisualPlans = { visual_briefs: VisualBrief[]; concept_specs: unknown[] };
 
 export type PipelineResult = {
   brief: { product?: string; target_duration_sec: number; platform: string; audience?: string };
@@ -159,6 +238,24 @@ export const deleteProject = (id: string) => api<void>(`/projects/${id}`, { meth
 export const runPipeline = (id: string, raw_prompt: string) =>
   api<PipelineResult>(`/projects/${id}/run`, { method: "POST", body: JSON.stringify({ raw_prompt }) });
 
+// per-stage planning (staged run console shows live progress per stage)
+export const runBrief = (id: string, raw_prompt: string) =>
+  api<BriefInput>(`/projects/${id}/brief`, { method: "POST", body: JSON.stringify({ raw_prompt }) });
+export const runScript = (id: string, brief: BriefInput) =>
+  api<ScriptDraft>(`/projects/${id}/script`, { method: "POST", body: JSON.stringify(brief) });
+export const runVisualBriefs = (id: string, script: ScriptDraft) =>
+  api<VisualPlans>(`/projects/${id}/visual-briefs`, { method: "POST", body: JSON.stringify(script) });
+export const runStoryboard = (
+  id: string,
+  script: ScriptDraft,
+  concept_specs: unknown[],
+  target_duration_sec: number,
+) =>
+  api<unknown>(`/projects/${id}/storyboard`, {
+    method: "POST",
+    body: JSON.stringify({ script, concept_specs, target_duration_sec }),
+  });
+
 export const getScript = (id: string) => api<Scene[]>(`/projects/${id}/script`);
 export const getConceptSets = (id: string) => api<ConceptSet[]>(`/projects/${id}/concept-sets`);
 export const getStoryboard = (id: string) => api<Shot[]>(`/projects/${id}/storyboard`);
@@ -172,11 +269,21 @@ export const promoteFrame = (id: string, frameId: string, target: string, name?:
     method: "POST",
     body: JSON.stringify({ target, name }),
   });
+export const refineFrame = (id: string, frameId: string, instruction: string) =>
+  api<LookFrame>(`/projects/${id}/look-frames/${frameId}/refine`, {
+    method: "POST",
+    body: JSON.stringify({ instruction }),
+  });
 
 export const generateShot = (
   id: string,
   shotId: string,
-  opts?: { first_frame_asset_id?: string; reference_asset_ids?: string[]; character_id?: string },
+  opts?: {
+    first_frame_asset_id?: string;
+    reference_asset_ids?: string[];
+    character_id?: string;
+    continue_from_previous?: boolean;
+  },
 ) =>
   api<ShotVersion>(`/projects/${id}/shots/${shotId}/generate`, {
     method: "POST",
@@ -191,11 +298,24 @@ export const editVersion = (id: string, shotId: string, versionId: string, instr
     method: "POST",
     body: JSON.stringify({ instruction }),
   });
+export const reviewVersion = (id: string, shotId: string, versionId: string) =>
+  api<ShotVersion>(`/projects/${id}/shots/${shotId}/versions/${versionId}/review`, {
+    method: "POST",
+  });
 export const refreshJob = (id: string, jobId: string) =>
   api<ShotVersion>(`/projects/${id}/jobs/${jobId}/refresh`, { method: "POST" });
+export const listJobs = (id: string) => api<Job[]>(`/projects/${id}/jobs`);
+export const retryJob = (id: string, jobId: string) =>
+  api<ShotVersion>(`/projects/${id}/jobs/${jobId}/retry`, { method: "POST" });
 
-export const assembleRoughCut = (id: string) =>
-  api<RoughCut>(`/projects/${id}/rough-cut`, { method: "POST" });
+export const assembleRoughCut = (
+  id: string,
+  opts?: { clips?: ClipSpec[]; captions?: boolean; music?: boolean },
+) =>
+  api<RoughCut>(`/projects/${id}/rough-cut`, {
+    method: "POST",
+    body: JSON.stringify(opts ?? {}),
+  });
 export const listRoughCuts = (id: string) => api<RoughCut[]>(`/projects/${id}/rough-cut`);
 
 export const listCharacters = (id: string) => api<Character[]>(`/projects/${id}/characters`);

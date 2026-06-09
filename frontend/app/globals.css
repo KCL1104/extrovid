@@ -91,6 +91,12 @@ body {
 @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 .pulse-dot { animation: pulse-dot 1.2s ease-in-out infinite; }
 
+@keyframes drawer-in {
+  from { transform: translateX(24px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.drawer-in { animation: drawer-in 0.25s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
 /* honor the OS "reduce motion" setting across every animation/transition */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_owned_project
 from app.core.db import get_session
 from app.models.concept import VisualConceptSet
+from app.models.enums import ProjectStatus
 from app.models.project import Project
 from app.pipeline import orchestrator
 from app.schemas.api import RunRequest, StoryboardRequest, VisualPlansResponse
@@ -34,6 +35,12 @@ async def generate_brief(
 ):
     brief = await orchestrator.run_brief(body.raw_prompt)
     await planning_service.replace_brief(session, project_id, brief)
+    # the parsed brief drives the project's framing (mirrors /run's persist_pipeline)
+    project = await session.get(Project, project_id)
+    if project:
+        project.aspect_ratio = brief.aspect_ratio.value
+        project.target_duration_sec = brief.target_duration_sec
+        session.add(project)
     await session.commit()
     return brief
 
@@ -44,6 +51,10 @@ async def generate_script(
 ):
     script = await orchestrator.run_script(brief)
     await planning_service.replace_scenes(session, project_id, script)
+    project = await session.get(Project, project_id)
+    if project and project.status == ProjectStatus.DRAFT.value:
+        project.status = ProjectStatus.SCRIPTED.value
+        session.add(project)
     await session.commit()
     return script
 
@@ -87,6 +98,10 @@ async def generate_storyboard(
     )
     mapping = {s.order: s.id for s in await planning_service.list_scenes(session, project_id)}
     await planning_service.replace_shots(session, project_id, storyboard, mapping)
+    project = await session.get(Project, project_id)
+    if project:
+        project.status = ProjectStatus.STORYBOARDED.value
+        session.add(project)
     await session.commit()
     return storyboard
 

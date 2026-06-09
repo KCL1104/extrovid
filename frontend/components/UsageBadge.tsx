@@ -1,25 +1,25 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { getUsage, type Usage } from "@/lib/api";
 
 export default function UsageBadge() {
   const [u, setU] = useState<Usage | null>(null);
 
-  const load = useCallback(async () => {
-    try {
-      setU(await getUsage());
-    } catch {
-      /* ignore — badge is best-effort */
-    }
-  }, []);
-
   useEffect(() => {
-    load();
-    const onChange = () => load();
-    window.addEventListener("extrovid-usage-changed", onChange);
-    return () => window.removeEventListener("extrovid-usage-changed", onChange);
-  }, [load]);
+    let live = true;
+    // best-effort: failures keep the previous value
+    const refresh = () =>
+      getUsage()
+        .then((next) => live && setU(next))
+        .catch(() => {});
+    refresh();
+    window.addEventListener("extrovid-usage-changed", refresh);
+    return () => {
+      live = false;
+      window.removeEventListener("extrovid-usage-changed", refresh);
+    };
+  }, []);
 
   if (!u) return null;
   const near = (n: number, cap: number) => cap > 0 && n >= cap;

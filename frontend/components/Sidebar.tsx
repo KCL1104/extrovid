@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createProject, listProjects, type Project } from "@/lib/api";
@@ -18,20 +18,20 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
   const router = useRouter();
   const user = getUser();
 
-  const load = useCallback(async () => {
-    try {
-      setProjects(await listProjects());
-    } catch {
-      /* transient / unauthorized — leave the list as-is */
-    }
-  }, []);
-
   useEffect(() => {
-    load();
-    const onChange = () => load();
-    window.addEventListener(PROJECTS_CHANGED, onChange);
-    return () => window.removeEventListener(PROJECTS_CHANGED, onChange);
-  }, [load]);
+    let live = true;
+    // transient / unauthorized failures leave the list as-is
+    const refresh = () =>
+      listProjects()
+        .then((p) => live && setProjects(p))
+        .catch(() => {});
+    refresh();
+    window.addEventListener(PROJECTS_CHANGED, refresh);
+    return () => {
+      live = false;
+      window.removeEventListener(PROJECTS_CHANGED, refresh);
+    };
+  }, []);
 
   async function newProject() {
     if (creating) return;
