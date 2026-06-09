@@ -295,9 +295,9 @@ export default function Workspace({ projectId }: { projectId: string }) {
   // initial load / fatal error states
   if (loading && !project) {
     return (
-      <main className="mx-auto max-w-6xl px-6 py-10">
+      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
         <div className="h-9 w-64 rounded shimmer" />
-        <div className="mt-8 grid grid-cols-2 gap-4 lg:grid-cols-3">
+        <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className={`${aspectClass("9:16")} rounded-[var(--radius)] shimmer`} />
           ))}
@@ -307,7 +307,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
   }
   if (!loading && error && !project) {
     return (
-      <main className="mx-auto max-w-md px-6 py-24 text-center">
+      <main className="mx-auto max-w-md px-4 py-24 text-center sm:px-6">
         <Alert>{error}</Alert>
         <div className="mt-5 flex justify-center gap-3">
           <Button onClick={loadAll}>Retry</Button>
@@ -318,13 +318,19 @@ export default function Workspace({ projectId }: { projectId: string }) {
   }
 
   return (
-    <main className="mx-auto max-w-6xl px-6 py-10">
+    <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
       <div aria-live="polite" className="sr-only">{announce}</div>
 
       {/* top bar */}
       <div className="rise flex flex-wrap items-center justify-between gap-4">
         <div className="flex min-w-0 flex-1 items-center gap-4">
-          <Link href="/" aria-label="Back to projects" className="shrink-0 text-faint transition-colors hover:text-accent">←</Link>
+          <Link
+            href="/"
+            aria-label="Back to projects"
+            className="-ml-2 inline-flex size-10 shrink-0 items-center justify-center rounded-[var(--radius)] text-faint transition-colors hover:bg-panel-hi hover:text-accent"
+          >
+            ←
+          </Link>
           <div className="min-w-0">
             <Eyebrow>{project?.status ?? "—"}</Eyebrow>
             <h1 className="title truncate text-3xl text-fg">{project?.title ?? "…"}</h1>
@@ -411,7 +417,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
 
       {/* plan-run skeleton */}
       {running && !planned && (
-        <div className="mt-12 grid grid-cols-2 gap-4 lg:grid-cols-3">
+        <div className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className={`${aspectClass(aspect)} rounded-[var(--radius)] shimmer`} />
           ))}
@@ -429,7 +435,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
             >
               Tip: develop a look & promote a frame/character first — it feeds i2v and keeps shots consistent ↓
             </a>
-            <div className="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-3">
+            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {shots.map((shot, i) => (
                 <ShotCard
                   key={shot.id}
@@ -779,7 +785,7 @@ function ConceptSetCard({
               <div
                 className={`absolute inset-x-0 bottom-0 flex font-mono text-[0.6rem] backdrop-blur transition-opacity ${
                   f.promoted_as === "none"
-                    ? "opacity-0 group-hover:opacity-100 focus-within:opacity-100"
+                    ? "opacity-100 focus-within:opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100"
                     : "opacity-100"
                 }`}
               >

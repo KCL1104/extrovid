@@ -67,13 +67,13 @@ export default function Dashboard() {
 
   return (
     <Shell>
-      <main className="mx-auto max-w-5xl px-8 py-12 sm:py-16">
+      <main className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-16 lg:px-8">
         <header className="rise">
           <div className="flex items-center justify-between gap-3">
             <Eyebrow>AI-native director · brief → rough cut</Eyebrow>
             <UsageBadge />
           </div>
-          <h1 className="title mt-3 text-5xl text-fg sm:text-6xl">
+          <h1 className="title mt-3 text-4xl text-fg sm:text-5xl lg:text-6xl">
             start a new <span className="italic text-accent">project</span>
           </h1>
           <p className="mt-4 max-w-xl leading-relaxed text-muted">

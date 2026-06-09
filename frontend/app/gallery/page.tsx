@@ -23,11 +23,11 @@ export default function GalleryPage() {
   }, []);
 
   return (
-    <main className="mx-auto max-w-6xl px-6 py-16 sm:py-24">
+    <main className="mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-20">
       <header className="rise flex flex-wrap items-end justify-between gap-4">
         <div>
           <Eyebrow>community</Eyebrow>
-          <h1 className="title mt-2 text-5xl text-fg sm:text-6xl">
+          <h1 className="title mt-2 text-4xl text-fg sm:text-5xl lg:text-6xl">
             the <span className="italic text-accent">gallery</span>
           </h1>
           <p className="mt-3 max-w-lg text-sm text-muted">

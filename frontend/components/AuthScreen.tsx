@@ -58,7 +58,7 @@ export default function AuthScreen({ onAuthed }: { onAuthed: (token: string) => 
     <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-6">
       <div className="rise">
         <Eyebrow>extrovid · access</Eyebrow>
-        <h1 className="title mt-3 text-5xl text-fg">
+        <h1 className="title mt-3 text-4xl text-fg sm:text-5xl">
           {mode === "login" ? (
             <>
               welcome <span className="italic text-accent">back</span>

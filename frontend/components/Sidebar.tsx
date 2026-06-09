@@ -5,12 +5,13 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createProject, listProjects, type Project } from "@/lib/api";
 import { clearAuth, getUser } from "@/lib/auth";
-import { Button, Spinner } from "@/components/ui";
+import { Button, Spinner, cn } from "@/components/ui";
 
 // Fired by the dashboard/sidebar after a project is created or deleted, so both re-fetch.
 export const PROJECTS_CHANGED = "extrovid-projects-changed";
 
-export default function Sidebar() {
+// `open`/`onClose` drive the mobile drawer; on lg+ the rail is always visible and ignores them.
+export default function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [creating, setCreating] = useState(false);
   const pathname = usePathname();
@@ -64,11 +65,27 @@ export default function Sidebar() {
   }
 
   return (
-    <aside className="sticky top-0 flex h-screen w-64 shrink-0 flex-col border-r border-border bg-bg-soft/40">
-      <div className="px-4 py-5">
-        <Link href="/" className="title text-2xl text-fg">
+    <aside
+      className={cn(
+        // mobile: off-canvas fixed drawer that slides in
+        "fixed left-0 top-0 z-50 flex h-screen w-64 shrink-0 flex-col border-r border-border bg-bg-soft transition-transform duration-300 ease-out",
+        // desktop: permanent sticky rail (translucent, no slide)
+        "lg:sticky lg:z-auto lg:translate-x-0 lg:bg-bg-soft/40 lg:transition-none",
+        open ? "translate-x-0" : "-translate-x-full",
+      )}
+    >
+      <div className="flex items-center justify-between px-4 py-5">
+        <Link href="/" onClick={onClose} className="title text-2xl text-fg">
           extro<span className="italic text-accent">vid</span>
         </Link>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close menu"
+          className="-mr-2 inline-flex size-10 items-center justify-center rounded-[var(--radius)] text-faint transition-colors hover:bg-panel-hi hover:text-fg lg:hidden"
+        >
+          ✕
+        </button>
       </div>
 
       <div className="px-3">
