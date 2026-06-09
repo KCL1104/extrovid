@@ -59,13 +59,33 @@ def build_storyboard_prompt(
     concept_specs: list[VisualConceptSetSpec],
     target_duration_sec: int,
 ) -> str:
-    scene_lines = "\n".join(f"- scene {s.order} ({s.title}): {s.summary}" for s in script.scenes)
+    # the storyboard must see the look-dev direction, not just the script — camera
+    # language and mood per scene should shape shot sizes, movement, and pacing
+    direction_by_order: dict[int, str] = {}
+    for vb in visual_briefs:
+        bits = [
+            getattr(vb, "visual_style", None),
+            getattr(vb, "mood", None),
+            getattr(vb, "camera_language", None),
+            getattr(vb, "lighting", None),
+        ]
+        direction_by_order[vb.scene_order] = ", ".join(b for b in bits if b)
+    scene_lines = "\n".join(
+        f"- scene {s.order} ({s.title}): {s.summary}"
+        + (
+            f"\n  visual direction: {direction_by_order[s.order]}"
+            if direction_by_order.get(s.order)
+            else ""
+        )
+        for s in script.scenes
+    )
     return (
         "Turn this script into an executable shot list.\n"
         f"TARGET_DURATION_SEC={target_duration_sec}\n"
         f"Logline: {script.logline}\n"
         f"Scenes:\n{scene_lines}\n"
         f"Concept sets available: {len(concept_specs)}\n"
+        "Honor each scene's visual direction in camera_spec choices. "
         "Produce 5-10 shots total, globally ordered from 0, durations summing near the target."
     )
 

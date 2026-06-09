@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_owned_project
 from app.core.db import get_session
 from app.models.timeline import TimelineSequence
-from app.schemas.api import RoughCutRead
+from app.schemas.api import AssembleRequest, RoughCutRead
 from app.services import gallery_service, rough_cut_service
 from app.services.asset_service import asset_url
 
@@ -23,15 +23,29 @@ async def _read(session: AsyncSession, seq: TimelineSequence) -> RoughCutRead:
         output_asset_id=seq.output_asset_id,
         video_url=await asset_url(session, seq.output_asset_id),
         shot_version_ids=seq.shot_version_ids,
+        clips=seq.clips,
+        options=seq.options,
+        created_at=seq.created_at,
         published=pub is not None,
         published_id=pub.id if pub else None,
     )
 
 
 @router.post("/rough-cut", response_model=RoughCutRead)
-async def assemble(project_id: str, session: AsyncSession = Depends(get_session)):
+async def assemble(
+    project_id: str,
+    body: AssembleRequest | None = None,
+    session: AsyncSession = Depends(get_session),
+):
+    opts = body or AssembleRequest()
     try:
-        seq = await rough_cut_service.assemble_rough_cut(session, project_id)
+        seq = await rough_cut_service.assemble_rough_cut(
+            session,
+            project_id,
+            clip_plan=[c.model_dump() for c in opts.clips] if opts.clips else None,
+            captions=opts.captions,
+            music=opts.music,
+        )
     except LookupError as e:
         raise HTTPException(status_code=400, detail=str(e)) from None
     return await _read(session, seq)

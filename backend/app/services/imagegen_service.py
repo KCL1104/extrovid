@@ -11,8 +11,8 @@ from app.core.auth import AuthCtx
 from app.models.concept import LookFrame, VisualConceptSet
 from app.models.enums import ConceptSetStatus
 from app.models.project import Project
-from app.providers.image_factory import generate_image, size_for_aspect
-from app.services.asset_service import store_image
+from app.providers.image_factory import edit_image, generate_image, size_for_aspect
+from app.services.asset_service import asset_url, store_image
 from app.services.usage_service import assert_within_cap
 
 
@@ -52,3 +52,45 @@ async def generate_images_for_concept_set(
     session.add(cs)
     await session.commit()
     return list(frames)
+
+
+async def refine_look_frame(
+    session: AsyncSession,
+    project_id: str,
+    frame_id: str,
+    instruction: str,
+    *,
+    auth: AuthCtx,
+) -> LookFrame:
+    """Iteratively refine an existing look frame with Qwen-Image-Edit.
+
+    Creates a NEW LookFrame in the same concept set with ``parent_frame_id`` lineage —
+    the original is never overwritten, mirroring the take-lineage pattern on videos.
+    """
+    frame = await session.get(LookFrame, frame_id)
+    if frame is None or frame.project_id != project_id:
+        raise LookupError("look frame not found")
+    if not frame.image_asset_id:
+        raise LookupError("look frame has no image to refine — generate images first")
+    source_url = await asset_url(session, frame.image_asset_id)
+    if not source_url:
+        raise LookupError("look frame image is unavailable")
+
+    await assert_within_cap(session, "image", 1, auth=auth)
+    result = await edit_image(source_url, instruction)
+    prompt = f"{frame.prompt} — refined: {instruction}"
+    asset = await store_image(session, project_id, result, prompt)
+
+    refined = LookFrame(
+        project_id=project_id,
+        concept_set_id=frame.concept_set_id,
+        prompt=prompt,
+        source_model=result.source_model,
+        image_asset_id=asset.id,
+        tags=[*frame.tags, "refined"],
+        parent_frame_id=frame.id,
+    )
+    session.add(refined)
+    await session.commit()
+    await session.refresh(refined)
+    return refined

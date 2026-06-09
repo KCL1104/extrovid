@@ -28,6 +28,7 @@ async def get_concept_sets(project_id: str, session: AsyncSession = Depends(get_
             brief=cs.brief,
             type=cs.type,
             status=cs.status,
+            visual_brief=cs.visual_brief,
             look_frames=await asset_service.frames_to_read(session, frames),
         )
         for cs, frames in pairs

@@ -130,6 +130,34 @@ def _scene_visual_plan_dict(text: str) -> dict:
     }
 
 
+def _review_dict(text: str) -> dict:
+    """Deterministic dailies review. The marker REVIEW_FORCE=revise lets tests (and the
+    mock pipeline) exercise the revise path; everything else passes with a solid score."""
+    revise = re.search(r"REVIEW_FORCE\s*=\s*revise", text) is not None
+    if revise:
+        return {
+            "verdict": "revise",
+            "score": 4.5,
+            "notes": [
+                "Subject drifts out of frame on the move.",
+                "Lighting reads flatter than the visual brief's golden-hour key.",
+            ],
+            "suggestions": [
+                {"kind": "edit", "instruction": "warm up the lighting to golden hour"},
+                {"kind": "retake", "instruction": "keep the subject centered for the full move"},
+            ],
+        }
+    return {
+        "verdict": "pass",
+        "score": 8.2,
+        "notes": [
+            "Subject is clearly framed and the move lands on the beat.",
+            "Mood matches the scene's visual brief.",
+        ],
+        "suggestions": [],
+    }
+
+
 def _clamp(value: int, low: int, high: int) -> int:
     return max(low, min(high, value))
 
@@ -192,6 +220,8 @@ def dispatch_mock(messages, info: AgentInfo) -> ModelResponse:
         args = _script_dict(text)
     elif "visual_brief" in props:
         args = _scene_visual_plan_dict(text)
+    elif "verdict" in props:
+        args = _review_dict(text)
     elif "scenes" in props:
         args = _storyboard_dict(text)
     else:  # pragma: no cover - defensive

@@ -6,6 +6,13 @@ ENV PYTHONUNBUFFERED=1 \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy
 
+# Pinned static ffmpeg + ffprobe (rough-cut rendering, thumbnails, continuation frames,
+# media probing). IMAGEIO_FFMPEG_EXE points imageio-ffmpeg at this binary so dev (wheel)
+# and prod (pinned) use the same code path; FFPROBE_EXE enables structured JSON probing.
+COPY --from=mwader/static-ffmpeg:7.1 /ffmpeg /ffprobe /usr/local/bin/
+ENV IMAGEIO_FFMPEG_EXE=/usr/local/bin/ffmpeg \
+    FFPROBE_EXE=/usr/local/bin/ffprobe
+
 WORKDIR /app
 
 # uv binary

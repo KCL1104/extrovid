@@ -59,7 +59,13 @@ async def _image_count(session: AsyncSession, owner_id: str | None) -> int:
     stmt = _scope_images(
         select(func.count())
         .select_from(ImageAsset)
-        .where(ImageAsset.content_type.like("image/%"), ImageAsset.created_at >= _today_start()),
+        .where(
+            ImageAsset.content_type.like("image/%"),
+            ImageAsset.created_at >= _today_start(),
+            # free ffmpeg derivatives (poster frames, continuation frames) are not
+            # billable generations and must not consume the user's daily budget
+            ImageAsset.source_model.not_like("ffmpeg:%"),
+        ),
         owner_id,
     )
     return int((await session.execute(stmt)).scalar_one())

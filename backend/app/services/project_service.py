@@ -11,7 +11,7 @@ from app.models.project import Brief, Project
 from app.models.scene import Scene
 from app.models.shot import Shot
 from app.models.timeline import TimelineSequence
-from app.schemas.api import ProjectCreate, ProjectUpdate
+from app.schemas.api import ProjectCreate, ProjectStats, ProjectUpdate
 from app.services import asset_service
 
 
@@ -49,6 +49,40 @@ async def list_projects(
         stmt = stmt.where(Project.owner_id == owner_id)
     res = await session.execute(stmt)
     return list(res.scalars().all())
+
+
+async def stats_for(session: AsyncSession, project_ids: list[str]) -> dict[str, ProjectStats]:
+    """Production progress counters per project (grouped counts, four queries total)."""
+    if not project_ids:
+        return {}
+    stats = {pid: ProjectStats() for pid in project_ids}
+
+    for pid, n in await session.execute(
+        select(Scene.project_id, func.count())
+        .where(Scene.project_id.in_(project_ids))
+        .group_by(Scene.project_id)
+    ):
+        stats[pid].scenes = n
+    for pid, n in await session.execute(
+        select(Shot.project_id, func.count())
+        .where(Shot.project_id.in_(project_ids))
+        .group_by(Shot.project_id)
+    ):
+        stats[pid].shots = n
+    for pid, n in await session.execute(
+        select(Shot.project_id, func.count(func.distinct(Shot.id)))
+        .join(ShotVersion, ShotVersion.shot_id == Shot.id)
+        .where(Shot.project_id.in_(project_ids), ShotVersion.output_asset_id.is_not(None))
+        .group_by(Shot.project_id)
+    ):
+        stats[pid].rendered_shots = n
+    for pid, n in await session.execute(
+        select(TimelineSequence.project_id, func.count())
+        .where(TimelineSequence.project_id.in_(project_ids))
+        .group_by(TimelineSequence.project_id)
+    ):
+        stats[pid].cuts = n
+    return stats
 
 
 async def update_project(session: AsyncSession, project: Project, data: ProjectUpdate) -> Project:

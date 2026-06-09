@@ -85,3 +85,54 @@ async def generate_image(prompt: str, size: str) -> ImageResult:
         height=usage.get("height"),
         source_model=settings.qwen_image_model,
     )
+
+
+async def edit_image(source_image_url: str, instruction: str) -> ImageResult:
+    """Instruction-based refinement of an existing image (Qwen-Image-Edit).
+
+    Closes the spec's previsual iterate loop: refine an approved look frame instead of
+    regenerating concepts from scratch. ``source_image_url`` must be fetchable by the
+    provider (we pass a presigned GET URL).
+    """
+    settings = get_settings()
+    if settings.use_mock_image:
+        return ImageResult(
+            content=_MOCK_PNG,
+            content_type="image/png",
+            width=1,
+            height=1,
+            source_model=f"mock:{settings.qwen_image_edit_model}",
+        )
+
+    body = {
+        "model": settings.qwen_image_edit_model,
+        "input": {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [{"image": source_image_url}, {"text": instruction}],
+                }
+            ]
+        },
+        "parameters": {"n": 1, "watermark": False},
+    }
+    headers = {
+        "Authorization": f"Bearer {settings.dashscope_api_key}",
+        "Content-Type": "application/json",
+    }
+    resp = await request_with_retry(
+        "POST", settings.dashscope_image_url, headers=headers, json=body
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    url = data["output"]["choices"][0]["message"]["content"][0]["image"]
+    usage = data.get("usage", {})
+    img = await request_with_retry("GET", url)
+    img.raise_for_status()
+    return ImageResult(
+        content=img.content,
+        content_type=img.headers.get("content-type", "image/png"),
+        width=usage.get("width"),
+        height=usage.get("height"),
+        source_model=settings.qwen_image_edit_model,
+    )

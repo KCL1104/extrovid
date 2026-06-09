@@ -1,4 +1,8 @@
-"""Shot video generation endpoints (Wan t2v/i2v via the async GenerationJob lifecycle)."""
+"""Shot video generation endpoints (Wan t2v/i2v/r2v via the async GenerationJob lifecycle).
+
+Also exposes the project-wide jobs queue (status / cost / retry) and the per-take AI
+review — the production-management surface of the app.
+"""
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -9,8 +13,8 @@ from app.core.auth import AuthCtx, current_auth
 from app.core.db import get_session
 from app.models.generation import GenerationJob, ShotVersion
 from app.models.shot import Shot
-from app.schemas.api import EditShotRequest, GenerateShotRequest, ShotVersionRead
-from app.services import generate_service
+from app.schemas.api import EditShotRequest, GenerateShotRequest, JobRead, ShotVersionRead
+from app.services import generate_service, review_service
 from app.services.asset_service import asset_url
 
 router = APIRouter(
@@ -31,11 +35,17 @@ async def _version_read(
     return ShotVersionRead(
         id=version.id,
         shot_id=version.shot_id,
+        parent_version_id=version.parent_version_id,
         model=version.model,
         status=version.status,
         selected=version.selected,
         output_asset_id=version.output_asset_id,
         video_url=await asset_url(session, version.output_asset_id),
+        thumbnail_url=await asset_url(session, version.thumbnail_asset_id),
+        duration_sec=version.duration_sec,
+        score=version.score,
+        review=version.review,
+        routing_note=version.routing_note,
         job_id=job.id if job else None,
         job_status=job.status if job else None,
         failure_reason=job.failure_reason if job else None,
@@ -51,15 +61,19 @@ async def generate_shot(
     session: AsyncSession = Depends(get_session),
 ):
     shot = await _shot_or_404(session, project_id, shot_id)
-    version, job = await generate_service.submit_shot(
-        session,
-        project_id,
-        shot,
-        auth=auth,
-        first_frame_asset_id=body.first_frame_asset_id if body else None,
-        reference_asset_ids=body.reference_asset_ids if body else None,
-        character_id=body.character_id if body else None,
-    )
+    try:
+        version, job = await generate_service.submit_shot(
+            session,
+            project_id,
+            shot,
+            auth=auth,
+            first_frame_asset_id=body.first_frame_asset_id if body else None,
+            reference_asset_ids=body.reference_asset_ids if body else None,
+            character_id=body.character_id if body else None,
+            continue_from_previous=body.continue_from_previous if body else False,
+        )
+    except LookupError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
     return await _version_read(session, version, job)
 
 
@@ -136,6 +150,31 @@ async def select_version(
     return await _version_read(session, target, job)
 
 
+@router.post("/shots/{shot_id}/versions/{version_id}/review", response_model=ShotVersionRead)
+async def review_version(
+    project_id: str, shot_id: str, version_id: str, session: AsyncSession = Depends(get_session)
+):
+    """(Re-)run the AI dailies review for a finished take."""
+    await _shot_or_404(session, project_id, shot_id)
+    version = await session.get(ShotVersion, version_id)
+    if version is None or version.shot_id != shot_id:
+        raise HTTPException(status_code=404, detail="version not found")
+    if not version.output_asset_id:
+        raise HTTPException(status_code=400, detail="take has no video to review yet")
+    version = await review_service.review_version(session, version)
+    await session.commit()
+    job = (
+        (
+            await session.execute(
+                select(GenerationJob).where(GenerationJob.shot_version_id == version.id)
+            )
+        )
+        .scalars()
+        .first()
+    )
+    return await _version_read(session, version, job)
+
+
 @router.post("/jobs/{job_id}/refresh", response_model=ShotVersionRead)
 async def refresh_job(project_id: str, job_id: str, session: AsyncSession = Depends(get_session)):
     job = await session.get(GenerationJob, job_id)
@@ -148,3 +187,53 @@ async def refresh_job(project_id: str, job_id: str, session: AsyncSession = Depe
     job = await generate_service.poll_and_ingest_job(session, job)
     version = await session.get(ShotVersion, job.shot_version_id)
     return await _version_read(session, version, job)
+
+
+@router.get("/jobs", response_model=list[JobRead])
+async def list_jobs(project_id: str, session: AsyncSession = Depends(get_session)):
+    """Every generation job in the project, newest first — the production queue."""
+    rows = (
+        await session.execute(
+            select(GenerationJob, ShotVersion, Shot)
+            .join(ShotVersion, GenerationJob.shot_version_id == ShotVersion.id)
+            .join(Shot, ShotVersion.shot_id == Shot.id)
+            .where(Shot.project_id == project_id)
+            .order_by(GenerationJob.started_at.desc())
+        )
+    ).all()
+    return [
+        JobRead(
+            id=job.id,
+            status=job.status,
+            provider=job.provider,
+            model=job.model,
+            started_at=job.started_at,
+            completed_at=job.completed_at,
+            failure_reason=job.failure_reason,
+            cost_usd=job.cost_usd,
+            shot_id=shot.id,
+            shot_order=shot.order,
+            shot_purpose=shot.purpose,
+            version_id=version.id,
+            thumbnail_url=await asset_url(session, version.thumbnail_asset_id),
+        )
+        for job, version, shot in rows
+    ]
+
+
+@router.post("/jobs/{job_id}/retry", response_model=ShotVersionRead)
+async def retry_job(
+    project_id: str,
+    job_id: str,
+    auth: AuthCtx = Depends(current_auth),
+    session: AsyncSession = Depends(get_session),
+):
+    """Re-run a failed job with the same direction (creates a fresh take + job)."""
+    job = await session.get(GenerationJob, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    try:
+        version, new_job = await generate_service.retry_job(session, project_id, job, auth=auth)
+    except LookupError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
+    return await _version_read(session, version, new_job)

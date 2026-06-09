@@ -34,9 +34,14 @@ class Settings(BaseSettings):
     # --- Image generation (Qwen-Image, DashScope-native sync endpoint) ---
     use_mock_image: bool = True  # mock generator + in-memory storage (offline/free)
     qwen_image_model: str = "qwen-image-plus"  # cheap; qwen-image-2.0-pro for higher quality
+    qwen_image_edit_model: str = "qwen-image-edit-plus"  # iterative look-frame refinement
     dashscope_image_url: str = (
         "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
     )
+
+    # --- AI review (ReviewAgent: scores every finished take against acceptance rules) ---
+    auto_review: bool = True  # run the review automatically when a take's video lands
+    review_vision: bool = True  # attach the take's poster frame (real-LLM mode only)
 
     # --- Video generation (Wan, DashScope-native ASYNC: submit -> poll) ---
     use_mock_video: bool = True

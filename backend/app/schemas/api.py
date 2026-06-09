@@ -50,6 +50,15 @@ class ProjectUpdate(BaseModel):
     target_duration_sec: int | None = Field(default=None, ge=5, le=120)
 
 
+class ProjectStats(BaseModel):
+    """Production progress counters shown on the dashboard / project header."""
+
+    scenes: int = 0
+    shots: int = 0
+    rendered_shots: int = 0
+    cuts: int = 0
+
+
 class ProjectRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -60,6 +69,7 @@ class ProjectRead(BaseModel):
     aspect_ratio: str
     target_duration_sec: int
     created_at: datetime
+    stats: ProjectStats | None = None
 
 
 class RunRequest(BaseModel):
@@ -101,6 +111,11 @@ class LookFrameRead(BaseModel):
     selected: bool
     image_asset_id: str | None
     image_url: str | None = None  # presigned GET URL when an image has been generated
+    parent_frame_id: str | None = None  # set when this frame was refined from another
+
+
+class RefineFrameRequest(BaseModel):
+    instruction: str = Field(..., min_length=1)
 
 
 class PromoteRequest(BaseModel):
@@ -112,6 +127,8 @@ class GenerateShotRequest(BaseModel):
     first_frame_asset_id: str | None = None
     reference_asset_ids: list[str] | None = None  # -> r2v consistency references
     character_id: str | None = None  # -> r2v using a CharacterProfile's reference frames
+    # i2v continuation: seed this shot with the previous shot's last frame
+    continue_from_previous: bool = False
 
 
 class EditShotRequest(BaseModel):
@@ -134,14 +151,52 @@ class StylePackRead(BaseModel):
 class ShotVersionRead(BaseModel):
     id: str
     shot_id: str
+    parent_version_id: str | None = None
     model: str | None = None
     status: str
     selected: bool = False
     output_asset_id: str | None = None
     video_url: str | None = None
+    thumbnail_url: str | None = None  # extracted poster frame
+    duration_sec: float | None = None  # probed real clip duration
+    score: float | None = None  # ReviewAgent's 0-10 score
+    review: dict | None = None  # {verdict, score, notes[], suggestions[]}
+    routing_note: str | None = None  # why this take went to its Wan model
     job_id: str | None = None
     job_status: str | None = None
     failure_reason: str | None = None
+
+
+class JobRead(BaseModel):
+    """One generation job with its shot context — powers the project queue panel."""
+
+    id: str
+    status: str
+    provider: str | None = None
+    model: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    failure_reason: str | None = None
+    cost_usd: float = 0.0
+    shot_id: str
+    shot_order: int
+    shot_purpose: str
+    version_id: str
+    thumbnail_url: str | None = None
+
+
+class ClipSpec(BaseModel):
+    shot_version_id: str
+    in_sec: float = Field(default=0.0, ge=0)
+    out_sec: float | None = Field(default=None, gt=0)
+
+
+class AssembleRequest(BaseModel):
+    """Optional cut plan: ordered takes with trims, plus render options."""
+
+    clips: list[ClipSpec] | None = None
+    captions: bool = True
+    music: bool = True
 
 
 class RoughCutRead(BaseModel):
@@ -150,6 +205,9 @@ class RoughCutRead(BaseModel):
     output_asset_id: str | None = None
     video_url: str | None = None
     shot_version_ids: list = []
+    clips: list | None = None
+    options: dict | None = None
+    created_at: datetime | None = None
     published: bool = False
     published_id: str | None = None
 
@@ -170,6 +228,7 @@ class ConceptSetRead(BaseModel):
     brief: str
     type: str
     status: str
+    visual_brief: dict | None = None  # the scene's persisted art direction
     look_frames: list[LookFrameRead] = []
 
 

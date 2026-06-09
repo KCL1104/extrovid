@@ -18,6 +18,7 @@ from app.schemas.pipeline import (
     PipelineResult,
     ScriptDraft,
     Storyboard,
+    VisualBrief,
     VisualConceptSetSpec,
 )
 
@@ -83,7 +84,11 @@ async def _insert_concept_sets(
     pid: str,
     concept_specs: list[VisualConceptSetSpec],
     scene_id_by_order: dict[int, str],
+    visual_briefs: list[VisualBrief] | None = None,
 ) -> None:
+    # persist each scene's art direction alongside its concept set — downstream prompt
+    # composition and storyboard planning read it back from here
+    brief_by_order = {vb.scene_order: vb.model_dump(mode="json") for vb in visual_briefs or []}
     frames: list[LookFrame] = []
     for spec in concept_specs:
         cs = VisualConceptSet(
@@ -93,6 +98,7 @@ async def _insert_concept_sets(
             brief=spec.brief,
             type=spec.type.value,
             status=spec.status.value,
+            visual_brief=brief_by_order.get(spec.scene_order),
         )
         session.add(cs)
         for frame in spec.candidate_look_frames:
@@ -170,9 +176,10 @@ async def replace_concept_sets(
     project_id: str,
     concept_specs: list[VisualConceptSetSpec],
     scene_id_by_order: dict[int, str],
+    visual_briefs: list[VisualBrief] | None = None,
 ) -> None:
     await _clear_concept_sets(session, project_id)
-    await _insert_concept_sets(session, project_id, concept_specs, scene_id_by_order)
+    await _insert_concept_sets(session, project_id, concept_specs, scene_id_by_order, visual_briefs)
 
 
 async def replace_shots(
@@ -194,7 +201,9 @@ async def persist_pipeline(session: AsyncSession, project: Project, result: Pipe
     await _clear_all(session, project.id)
     await _insert_brief(session, project.id, result.brief)
     mapping = await _insert_scenes(session, project.id, result.script)
-    await _insert_concept_sets(session, project.id, result.concept_specs, mapping)
+    await _insert_concept_sets(
+        session, project.id, result.concept_specs, mapping, result.visual_briefs
+    )
     await _insert_shots(session, project.id, result.storyboard, mapping)
 
     project.status = ProjectStatus.STORYBOARDED.value

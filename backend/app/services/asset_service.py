@@ -122,6 +122,17 @@ def presigned_url(bucket_key: str) -> str:
     )
 
 
+async def load_bytes(asset: ImageAsset) -> bytes:
+    """Fetch a stored asset's raw bytes (mock store or S3)."""
+    if asset.bucket_key in _MOCK_STORE:
+        return _MOCK_STORE[asset.bucket_key]
+    client = _s3_client()
+    obj = await asyncio.to_thread(
+        client.get_object, Bucket=get_settings().s3_bucket, Key=asset.bucket_key
+    )
+    return await asyncio.to_thread(obj["Body"].read)
+
+
 async def delete_objects(keys: list[str]) -> None:
     """Best-effort removal of stored objects (mock store + real bucket). Never raises."""
     real: list[str] = []
@@ -163,6 +174,7 @@ async def frames_to_read(session: AsyncSession, frames: list[LookFrame]) -> list
             selected=f.selected,
             image_asset_id=f.image_asset_id,
             image_url=await asset_url(session, f.image_asset_id),
+            parent_frame_id=f.parent_frame_id,
         )
         for f in frames
     ]

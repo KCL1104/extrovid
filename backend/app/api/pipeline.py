@@ -5,10 +5,12 @@ the whole pipeline and persists everything atomically — this is the Phase-0 ex
 """
 
 from fastapi import APIRouter, Depends
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_owned_project
 from app.core.db import get_session
+from app.models.concept import VisualConceptSet
 from app.models.project import Project
 from app.pipeline import orchestrator
 from app.schemas.api import RunRequest, StoryboardRequest, VisualPlansResponse
@@ -17,6 +19,7 @@ from app.schemas.pipeline import (
     PipelineResult,
     ScriptDraft,
     Storyboard,
+    VisualBrief,
 )
 from app.services import planning_service
 
@@ -54,7 +57,9 @@ async def generate_visual_briefs(
     concept_specs = [p.concept_set for p in plans]
 
     mapping = {s.order: s.id for s in await planning_service.list_scenes(session, project_id)}
-    await planning_service.replace_concept_sets(session, project_id, concept_specs, mapping)
+    await planning_service.replace_concept_sets(
+        session, project_id, concept_specs, mapping, visual_briefs
+    )
     await session.commit()
     return VisualPlansResponse(visual_briefs=visual_briefs, concept_specs=concept_specs)
 
@@ -63,8 +68,22 @@ async def generate_visual_briefs(
 async def generate_storyboard(
     project_id: str, body: StoryboardRequest, session: AsyncSession = Depends(get_session)
 ):
+    # feed the persisted per-scene art direction into shot planning
+    rows = (
+        (
+            await session.execute(
+                select(VisualConceptSet).where(
+                    VisualConceptSet.project_id == project_id,
+                    VisualConceptSet.visual_brief.is_not(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    visual_briefs = [VisualBrief.model_validate(r.visual_brief) for r in rows]
     storyboard = await orchestrator.run_storyboard(
-        body.script, [], body.concept_specs, body.target_duration_sec
+        body.script, visual_briefs, body.concept_specs, body.target_duration_sec
     )
     mapping = {s.order: s.id for s in await planning_service.list_scenes(session, project_id)}
     await planning_service.replace_shots(session, project_id, storyboard, mapping)

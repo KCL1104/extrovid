@@ -13,4 +13,8 @@ class TimelineSequence(SQLModel, table=True):
     output_asset_id: str | None = None  # the assembled video (ImageAsset, content_type video/mp4)
     shot_version_ids: list = Field(default_factory=list, sa_column=Column(JSON))
     status: str = "ready"  # ready | failed
+    # Per-clip cut plan as assembled: [{"shot_version_id", "in_sec", "out_sec"}, ...].
+    clips: list | None = Field(default=None, sa_column=Column(JSON))
+    # Render options used: {"captions": bool, "music": bool}.
+    options: dict | None = Field(default=None, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC).replace(tzinfo=None))

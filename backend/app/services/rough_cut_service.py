@@ -39,6 +39,8 @@ class _Clip:
     data: bytes
     duration: float
     transition: str  # transition AFTER this clip (to the next)
+    in_sec: float = 0.0  # trim start (frame-accurate; clips are re-encoded anyway)
+    out_sec: float | None = None  # trim end; None = play to the end
 
 
 @dataclass
@@ -87,20 +89,36 @@ def _probe(ff: str, path: str) -> tuple[int, int, bool, float]:
     return w, h, has_audio, dur
 
 
-def _normalize(ff: str, src: str, dst: str, w: int, h: int, nominal: float) -> None:
+def _normalize(
+    ff: str,
+    src: str,
+    dst: str,
+    w: int,
+    h: int,
+    nominal: float,
+    in_sec: float = 0.0,
+    out_sec: float | None = None,
+) -> None:
     _, _, has_audio, _ = _probe(ff, src)
     vf = (
         f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
         f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p"
     )
+    # input-side seek + duration = frame-accurate trim (we re-encode here regardless)
+    trim: list[str] = []
+    if in_sec > 0:
+        trim += ["-ss", f"{in_sec:.3f}"]
+    if out_sec is not None and out_sec > in_sec:
+        trim += ["-t", f"{out_sec - in_sec:.3f}"]
     common = ["-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac", "-ar", "44100", "-ac", "2"]
     if has_audio:
-        _run([ff, "-y", "-i", src, "-vf", vf, *common, dst])
+        _run([ff, "-y", *trim, "-i", src, "-vf", vf, *common, dst])
     else:
         _run(
             [
                 ff,
                 "-y",
+                *trim,
                 "-i",
                 src,
                 "-f",
@@ -164,6 +182,8 @@ def _build_body(
             "veryfast",
             "-c:a",
             "aac",
+            "-movflags",
+            "+faststart",
             dst,
         ]
     )
@@ -215,7 +235,7 @@ def _finalize(ff: str, body: str, srt: str | None, bed: str | None, dst: str) ->
         args += ["-c", "copy"]
     if vchain or achain:
         args += ["-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac"]
-    args.append(dst)
+    args += ["-movflags", "+faststart", dst]  # web playback starts before full download
     _run(args)
 
 
@@ -250,7 +270,7 @@ def render_rough_cut(clips: list[_Clip], captions: list[_Caption], want_music: b
         norm, durs = [], []
         for i, src in enumerate(raw):
             dst = os.path.join(d, f"n{i}.mp4")
-            _normalize(ff, src, dst, w, h, clips[i].duration)
+            _normalize(ff, src, dst, w, h, clips[i].duration, clips[i].in_sec, clips[i].out_sec)
             norm.append(dst)
             durs.append(_probe(ff, dst)[3] or clips[i].duration)
 
@@ -364,10 +384,50 @@ async def _captions(session: AsyncSession, project_id: str, chosen, durs, trans)
     return caps
 
 
-async def assemble_rough_cut(session: AsyncSession, project_id: str) -> TimelineSequence:
-    chosen = await _chosen(session, project_id)
+async def _resolve_clip_plan(
+    session: AsyncSession, project_id: str, clip_plan: list[dict]
+) -> list[tuple[ShotVersion, Shot]]:
+    """Validate an explicit cut plan (ordered takes, optional trims) against the project."""
+    out: list[tuple[ShotVersion, Shot]] = []
+    for entry in clip_plan:
+        version = await session.get(ShotVersion, entry.get("shot_version_id", ""))
+        shot = await session.get(Shot, version.shot_id) if version else None
+        if version is None or shot is None or shot.project_id != project_id:
+            raise LookupError("cut plan references a take outside this project")
+        if not version.output_asset_id:
+            raise LookupError(f"take for shot #{shot.order} has no generated video")
+        out.append((version, shot))
+    return out
+
+
+def _trim_for(entry: dict | None, nominal: float) -> tuple[float, float | None, float]:
+    """(in_sec, out_sec, effective_duration) for a cut-plan entry."""
+    if not entry:
+        return 0.0, None, nominal
+    in_sec = max(0.0, float(entry.get("in_sec") or 0.0))
+    raw_out = entry.get("out_sec")
+    out_sec = float(raw_out) if raw_out is not None else None
+    if out_sec is not None and out_sec <= in_sec:
+        out_sec = None
+    duration = (out_sec - in_sec) if out_sec is not None else max(0.5, nominal - in_sec)
+    return in_sec, out_sec, duration
+
+
+async def assemble_rough_cut(
+    session: AsyncSession,
+    project_id: str,
+    *,
+    clip_plan: list[dict] | None = None,
+    captions: bool = True,
+    music: bool = True,
+) -> TimelineSequence:
+    if clip_plan:
+        chosen = await _resolve_clip_plan(session, project_id, clip_plan)
+    else:
+        chosen = await _chosen(session, project_id)
     if not chosen:
         raise LookupError("no generated shot videos to assemble")
+    plan_by_version = {e.get("shot_version_id"): e for e in clip_plan or []}
 
     settings = get_settings()
     if settings.use_mock_video:
@@ -377,11 +437,21 @@ async def assemble_rough_cut(session: AsyncSession, project_id: str) -> Timeline
         for v, shot in chosen:
             asset = await session.get(ImageAsset, v.output_asset_id)
             blob = await download_bytes(presigned_url(asset.bucket_key))
-            clips.append(_Clip(data=blob, duration=shot.duration_sec, transition=shot.transition))
+            nominal = v.duration_sec or shot.duration_sec
+            in_sec, out_sec, duration = _trim_for(plan_by_version.get(v.id), nominal)
+            clips.append(
+                _Clip(
+                    data=blob,
+                    duration=duration,
+                    transition=shot.transition,
+                    in_sec=in_sec,
+                    out_sec=out_sec,
+                )
+            )
         durs = [c.duration for c in clips]
         trans = [c.transition for c in clips]
-        captions = await _captions(session, project_id, chosen, durs, trans)
-        data = await asyncio.to_thread(render_rough_cut, clips, captions, True)
+        caps = await _captions(session, project_id, chosen, durs, trans) if captions else []
+        data = await asyncio.to_thread(render_rough_cut, clips, caps, music)
         use_mock, source_model = False, "rough-cut"
 
     asset = await store_bytes(
@@ -397,6 +467,15 @@ async def assemble_rough_cut(session: AsyncSession, project_id: str) -> Timeline
         project_id=project_id,
         output_asset_id=asset.id,
         shot_version_ids=[v.id for v, _ in chosen],
+        clips=[
+            {
+                "shot_version_id": v.id,
+                "in_sec": _trim_for(plan_by_version.get(v.id), 0.0)[0],
+                "out_sec": _trim_for(plan_by_version.get(v.id), 0.0)[1],
+            }
+            for v, _ in chosen
+        ],
+        options={"captions": captions, "music": music},
         status="ready",
     )
     session.add(seq)

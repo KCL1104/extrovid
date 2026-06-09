@@ -28,9 +28,16 @@ async def create(
 async def list_all(
     auth: AuthCtx = Depends(current_auth), session: AsyncSession = Depends(get_session)
 ):
-    return await project_service.list_projects(
+    projects = await project_service.list_projects(
         session, owner_id=auth.user_id, is_admin=auth.is_admin
     )
+    stats = await project_service.stats_for(session, [p.id for p in projects])
+    out = []
+    for p in projects:
+        read = ProjectRead.model_validate(p)
+        read.stats = stats.get(p.id)
+        out.append(read)
+    return out
 
 
 @router.get("/{project_id}", response_model=ProjectRead)

@@ -19,6 +19,9 @@ class VisualConceptSet(SQLModel, table=True):
     brief: str
     type: str
     status: str = Field(default=ConceptSetStatus.PLANNED.value)
+    # Persisted VisualBrief dump (style/mood/palette/lighting/camera/negative rules) —
+    # the art direction that feeds storyboard planning and final video prompts.
+    visual_brief: dict | None = Field(default=None, sa_column=Column(JSON))
 
 
 class LookFrame(SQLModel, table=True):
@@ -31,3 +34,5 @@ class LookFrame(SQLModel, table=True):
     tags: list = Field(default_factory=list, sa_column=Column(JSON))
     promoted_as: str = Field(default=PromotedAs.NONE.value)
     selected: bool = False
+    # Qwen-Image-Edit refine lineage: the frame this one was refined from.
+    parent_frame_id: str | None = None

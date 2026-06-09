@@ -1,10 +1,17 @@
-"""Shot video generation lifecycle over Wan (async) — activates ShotVersion + GenerationJob.
+"""Shot video generation lifecycle over Wan (async) — the AI-native production engine.
+
+Per take this service now:
+- composes the final prompt from project memory (visual brief, style pack, character)
+- routes the shot to a Wan model and records WHY (``routing_note``)
+- supports shot-to-shot continuation (previous take's last frame -> next shot's i2v seed)
+- on ingest: probes real duration, extracts a poster thumbnail, and runs the ReviewAgent
+  so every finished take carries a score + director's notes + revision suggestions
 
 Mock mode completes on submit (instant fake MP4). Real mode submits an async Wan task and
-relies on poll_and_ingest_job (called by the reconciler loop or the refresh endpoint) to
-download the finished video into object storage when the task succeeds.
+relies on poll_and_ingest_job (called by the reconciler loop or the refresh endpoint).
 """
 
+import asyncio
 from datetime import UTC, datetime
 
 from sqlalchemy import select
@@ -14,10 +21,11 @@ from app.core.auth import AuthCtx
 from app.core.config import get_settings
 from app.core.logging import log
 from app.core.pricing import video_cost_usd
-from app.models.concept import LookFrame
+from app.models.asset import ImageAsset
+from app.models.concept import LookFrame, VisualConceptSet
 from app.models.enums import JobStatus, PreferredModel, PromotedAs, ShotVersionStatus
 from app.models.generation import GenerationJob, ShotVersion
-from app.models.memory import CharacterProfile
+from app.models.memory import CharacterProfile, StylePack
 from app.models.project import Project
 from app.models.shot import Shot
 from app.providers.video_factory import (
@@ -27,7 +35,9 @@ from app.providers.video_factory import (
     submit_video,
     submit_videoedit,
 )
-from app.services.asset_service import asset_url, store_bytes
+from app.services import media_service, review_service
+from app.services.asset_service import asset_url, load_bytes, store_bytes
+from app.services.prompt_service import compose_shot_prompt
 from app.services.usage_service import assert_within_cap
 
 
@@ -39,17 +49,27 @@ def _ratio_for(aspect: str) -> str:
     return aspect if aspect in {"16:9", "9:16", "1:1"} else "9:16"
 
 
-def _shot_prompt(shot: Shot) -> str:
-    cam = shot.camera_spec or {}
-    perf = shot.performance_spec or {}
-    parts = [shot.purpose, f"{perf.get('subject', '')} {perf.get('action', '')}".strip()]
-    if perf.get("emotion"):
-        parts.append(f"mood: {perf['emotion']}")
-    cam_desc = " ".join(filter(None, [cam.get("shot_size"), cam.get("angle"), cam.get("movement")]))
-    if cam_desc:
-        parts.append(f"camera: {cam_desc}")
-    parts.append(f"beat: {shot.beat}")
-    return ". ".join(p for p in parts if p)
+async def _scene_visual_brief(session: AsyncSession, shot: Shot) -> dict | None:
+    if not shot.scene_id:
+        return None
+    cs = (
+        (
+            await session.execute(
+                select(VisualConceptSet).where(VisualConceptSet.scene_id == shot.scene_id)
+            )
+        )
+        .scalars()
+        .first()
+    )
+    return cs.visual_brief if cs else None
+
+
+async def _project_style_pack(session: AsyncSession, project_id: str) -> StylePack | None:
+    return (
+        (await session.execute(select(StylePack).where(StylePack.project_id == project_id)))
+        .scalars()
+        .first()
+    )
 
 
 async def _auto_first_frame_asset_id(session: AsyncSession, project_id: str) -> str | None:
@@ -91,6 +111,114 @@ async def _resolve_reference_urls(
     return urls[:5]
 
 
+async def _previous_shot_take(
+    session: AsyncSession, project_id: str, shot: Shot
+) -> tuple[Shot, ShotVersion] | None:
+    """The selected (else latest finished) take of the shot right before this one."""
+    prev = (
+        (
+            await session.execute(
+                select(Shot)
+                .where(Shot.project_id == project_id, Shot.order < shot.order)
+                .order_by(Shot.order.desc())
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if prev is None:
+        return None
+    versions = (
+        (
+            await session.execute(
+                select(ShotVersion).where(
+                    ShotVersion.shot_id == prev.id, ShotVersion.output_asset_id.is_not(None)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not versions:
+        return None
+    return prev, next((v for v in versions if v.selected), versions[-1])
+
+
+async def _continuation_frame_asset_id(
+    session: AsyncSession, project_id: str, shot: Shot
+) -> tuple[str, str]:
+    """Extract the previous take's last frame as a stored image asset (the i2v seed).
+
+    Returns (asset_id, routing_note). Raises LookupError when there is nothing to
+    continue from.
+    """
+    found = await _previous_shot_take(session, project_id, shot)
+    if found is None:
+        raise LookupError("no finished take on a previous shot to continue from")
+    prev_shot, prev_version = found
+    settings = get_settings()
+    src_asset = await session.get(ImageAsset, prev_version.output_asset_id)
+    frame: bytes | None = None
+    if src_asset is not None:
+        data = await load_bytes(src_asset)
+        frame = await asyncio.to_thread(media_service.extract_last_frame, data)
+    if frame is None:
+        if not settings.use_mock_video:
+            raise LookupError("could not extract a continuation frame from the previous take")
+        # mock clips are not decodable — use a placeholder frame so the flow stays testable
+        from app.providers.image_factory import _MOCK_PNG
+
+        frame = _MOCK_PNG
+    asset = await store_bytes(
+        session,
+        project_id,
+        frame,
+        "image/jpeg" if frame[:3] == b"\xff\xd8\xff" else "image/png",
+        prompt=f"continuation frame — last frame of shot #{prev_shot.order}",
+        source_model="ffmpeg:last-frame",
+        use_mock=settings.use_mock_video,
+    )
+    return asset.id, f"i2v — continues from shot #{prev_shot.order}'s last frame"
+
+
+async def _ingest_video_bytes(
+    session: AsyncSession,
+    project_id: str,
+    version: ShotVersion,
+    data: bytes,
+    *,
+    use_mock: bool,
+    source_model: str,
+) -> None:
+    """Store the finished clip, probe it, and attach a poster thumbnail."""
+    asset = await store_bytes(
+        session,
+        project_id,
+        data,
+        "video/mp4",
+        prompt=version.prompt or "",
+        source_model=source_model,
+        use_mock=use_mock,
+    )
+    version.output_asset_id = asset.id
+    info = await asyncio.to_thread(media_service.probe_video, data)
+    if info and info.duration_sec:
+        version.duration_sec = round(info.duration_sec, 2)
+    poster = await asyncio.to_thread(media_service.extract_poster, data)
+    if poster is not None:
+        thumb = await store_bytes(
+            session,
+            project_id,
+            poster,
+            "image/jpeg",
+            prompt=f"poster frame — {version.prompt or ''}"[:200],
+            source_model="ffmpeg:poster",
+            use_mock=use_mock,
+        )
+        version.thumbnail_asset_id = thumb.id
+    session.add(version)
+
+
 async def submit_shot(
     session: AsyncSession,
     project_id: str,
@@ -100,27 +228,75 @@ async def submit_shot(
     first_frame_asset_id: str | None = None,
     reference_asset_ids: list[str] | None = None,
     character_id: str | None = None,
+    continue_from_previous: bool = False,
 ) -> tuple[ShotVersion, GenerationJob]:
     settings = get_settings()
     await assert_within_cap(session, "video", 1, auth=auth)
     project = await session.get(Project, project_id)
     ratio = _ratio_for(project.aspect_ratio if project else "")
     duration = max(2, min(15, round(shot.duration_sec)))
-    prompt = _shot_prompt(shot)
+
+    gen_params = {
+        "first_frame_asset_id": first_frame_asset_id,
+        "reference_asset_ids": reference_asset_ids,
+        "character_id": character_id,
+        "continue_from_previous": continue_from_previous,
+    }
 
     reference_urls = await _resolve_reference_urls(
         session, project_id, reference_asset_ids, character_id
     )
-    if reference_urls:
-        prompt = "The main subject matches the reference image. " + prompt
 
-    if first_frame_asset_id is None and shot.preferred_model == PreferredModel.I2V.value:
-        first_frame_asset_id = await _auto_first_frame_asset_id(session, project_id)
+    # --- routing: decide the input mode and record why ---
+    routing_note: str | None = None
+    if continue_from_previous and not reference_urls and first_frame_asset_id is None:
+        first_frame_asset_id, routing_note = await _continuation_frame_asset_id(
+            session, project_id, shot
+        )
+    if first_frame_asset_id is None and not reference_urls:
+        if shot.preferred_model == PreferredModel.I2V.value:
+            first_frame_asset_id = await _auto_first_frame_asset_id(session, project_id)
+            if first_frame_asset_id:
+                routing_note = "i2v — first-frame control from the promoted look frame"
+    if routing_note is None:
+        if reference_urls:
+            character = await session.get(CharacterProfile, character_id) if character_id else None
+            who = f" ({character.name})" if character else ""
+            routing_note = (
+                f"r2v — {len(reference_urls)} reference image(s){who} lock subject consistency"
+            )
+        elif first_frame_asset_id:
+            routing_note = "i2v — first-frame control"
+        else:
+            routing_note = "t2v — text-to-video draft (no references in project memory yet)"
+
     first_frame_url = (
         await asset_url(session, first_frame_asset_id) if first_frame_asset_id else None
     )
 
-    version = ShotVersion(shot_id=shot.id, prompt=prompt, status=ShotVersionStatus.DRAFT.value)
+    # --- prompt: compose from project memory (visual brief / style pack / character) ---
+    visual_brief = await _scene_visual_brief(session, shot)
+    style_pack = await _project_style_pack(session, project_id)
+    character = None
+    if character_id:
+        character = await session.get(CharacterProfile, character_id)
+        if character and character.project_id != project_id:
+            character = None
+    prompt = compose_shot_prompt(
+        shot,
+        visual_brief=visual_brief,
+        style_pack=style_pack,
+        character=character,
+        has_reference_images=bool(reference_urls),
+    )
+
+    version = ShotVersion(
+        shot_id=shot.id,
+        prompt=prompt,
+        status=ShotVersionStatus.DRAFT.value,
+        routing_note=routing_note,
+        gen_params=gen_params,
+    )
     session.add(version)
     await session.flush()
     job = GenerationJob(
@@ -144,26 +320,20 @@ async def submit_shot(
         0.0 if settings.use_mock_video else video_cost_usd(duration, settings.video_resolution)
     )
     log.info(
-        "shot.generate project=%s shot=%s model=%s dur=%ss cost=$%.3f refs=%d",
+        "shot.generate project=%s shot=%s model=%s dur=%ss cost=$%.3f refs=%d route=%s",
         project_id,
         shot.id,
         sub.model,
         duration,
         job.cost_usd,
         len(reference_urls),
+        routing_note,
     )
 
     if settings.use_mock_video:
-        asset = await store_bytes(
-            session,
-            project_id,
-            MOCK_MP4,
-            "video/mp4",
-            prompt=prompt,
-            source_model=sub.model,
-            use_mock=True,
+        await _ingest_video_bytes(
+            session, project_id, version, MOCK_MP4, use_mock=True, source_model=sub.model
         )
-        version.output_asset_id = asset.id
         job.status = JobStatus.SUCCEEDED.value
         job.completed_at = _now()
     else:
@@ -171,6 +341,9 @@ async def submit_shot(
 
     session.add_all([version, job])
     await session.commit()
+
+    if settings.use_mock_video and settings.auto_review:
+        await review_service.review_version_safe(session, version)
     return version, job
 
 
@@ -195,6 +368,8 @@ async def submit_shot_edit(
         parent_version_id=source_version_id,
         prompt=instruction,
         status=ShotVersionStatus.DRAFT.value,
+        routing_note="videoedit — natural-language revision of the parent take",
+        gen_params={"instruction": instruction, "source_version_id": source_version_id},
     )
     session.add(version)
     await session.flush()
@@ -216,16 +391,9 @@ async def submit_shot_edit(
     )
 
     if settings.use_mock_video:
-        asset = await store_bytes(
-            session,
-            project_id,
-            MOCK_MP4,
-            "video/mp4",
-            prompt=instruction,
-            source_model=sub.model,
-            use_mock=True,
+        await _ingest_video_bytes(
+            session, project_id, version, MOCK_MP4, use_mock=True, source_model=sub.model
         )
-        version.output_asset_id = asset.id
         job.status = JobStatus.SUCCEEDED.value
         job.completed_at = _now()
     else:
@@ -233,7 +401,42 @@ async def submit_shot_edit(
 
     session.add_all([version, job])
     await session.commit()
+
+    if settings.use_mock_video and settings.auto_review:
+        await review_service.review_version_safe(session, version)
     return version, job
+
+
+async def retry_job(
+    session: AsyncSession, project_id: str, job: GenerationJob, *, auth: AuthCtx
+) -> tuple[ShotVersion, GenerationJob]:
+    """Re-run a FAILED job with the exact same direction (a fresh take + fresh job)."""
+    if job.status != JobStatus.FAILED.value:
+        raise LookupError("only failed jobs can be retried")
+    version = await session.get(ShotVersion, job.shot_version_id)
+    shot = await session.get(Shot, version.shot_id) if version else None
+    if shot is None or shot.project_id != project_id:
+        raise LookupError("job not found")
+    params = version.gen_params or {}
+    if "instruction" in params:
+        return await submit_shot_edit(
+            session,
+            project_id,
+            shot,
+            params["source_version_id"],
+            params["instruction"],
+            auth=auth,
+        )
+    return await submit_shot(
+        session,
+        project_id,
+        shot,
+        auth=auth,
+        first_frame_asset_id=params.get("first_frame_asset_id"),
+        reference_asset_ids=params.get("reference_asset_ids"),
+        character_id=params.get("character_id"),
+        continue_from_previous=bool(params.get("continue_from_previous")),
+    )
 
 
 async def poll_and_ingest_job(session: AsyncSession, job: GenerationJob) -> GenerationJob:
@@ -241,23 +444,17 @@ async def poll_and_ingest_job(session: AsyncSession, job: GenerationJob) -> Gene
         return job
 
     res = await poll_video(job.task_id)
+    reviewed_version: ShotVersion | None = None
     if res.status == "SUCCEEDED" and res.video_url and not res.video_url.startswith("mock://"):
         version = await session.get(ShotVersion, job.shot_version_id)
         shot = await session.get(Shot, version.shot_id) if version else None
         project_id = shot.project_id if shot else ""
         data = await download_bytes(res.video_url)
-        asset = await store_bytes(
-            session,
-            project_id,
-            data,
-            "video/mp4",
-            prompt=version.prompt if version else "",
-            source_model=job.model or "",
-            use_mock=False,
-        )
         if version:
-            version.output_asset_id = asset.id
-            session.add(version)
+            await _ingest_video_bytes(
+                session, project_id, version, data, use_mock=False, source_model=job.model or ""
+            )
+            reviewed_version = version
         job.status = JobStatus.SUCCEEDED.value
         job.completed_at = _now()
         log.info("job.succeeded job=%s model=%s", job.id, job.model)
@@ -279,6 +476,9 @@ async def poll_and_ingest_job(session: AsyncSession, job: GenerationJob) -> Gene
 
     session.add(job)
     await session.commit()
+
+    if reviewed_version is not None and get_settings().auto_review:
+        await review_service.review_version_safe(session, reviewed_version)
     return job
 
 

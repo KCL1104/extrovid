@@ -1,7 +1,8 @@
-"""RESERVED extension points — ShotVersion + GenerationJob.
+"""ShotVersion + GenerationJob — the video-generation execution entities.
 
-Defined so the schema is future-proof (Phase 1+ video generation), but no API or logic
-touches them in Milestone 1.
+Every generate / continue / edit creates a new ShotVersion (never overwrites). The
+AI review layer writes ``score`` / ``review`` / ``status`` after ingest; ``routing_note``
+records why the orchestrator picked a given Wan model for this take.
 """
 
 import uuid
@@ -24,6 +25,16 @@ class ShotVersion(SQLModel, table=True):
     status: str = Field(default=ShotVersionStatus.DRAFT.value)
     score: float | None = None
     selected: bool = False
+    # AI review (ReviewAgent): {"score", "verdict", "notes": [...], "suggestions": [...]}
+    review: dict | None = Field(default=None, sa_column=Column(JSON))
+    # Why this take was routed to its model (t2v/i2v/r2v/videoedit) — surfaced in the UI.
+    routing_note: str | None = None
+    # Poster frame extracted from the finished video (ImageAsset id) + probed duration.
+    thumbnail_asset_id: str | None = None
+    duration_sec: float | None = None
+    # The request that produced this take (character/first-frame/refs/edit instruction) —
+    # lets a failed job be retried with the exact same direction.
+    gen_params: dict | None = Field(default=None, sa_column=Column(JSON))
 
 
 class GenerationJob(SQLModel, table=True):

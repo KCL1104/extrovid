@@ -7,7 +7,7 @@ from app.api.deps import get_owned_project
 from app.core.auth import AuthCtx, current_auth
 from app.core.db import get_session
 from app.models.enums import PromotedAs
-from app.schemas.api import LookFrameRead, PromoteRequest
+from app.schemas.api import LookFrameRead, PromoteRequest, RefineFrameRequest
 from app.services import asset_service, imagegen_service, promote_service
 
 router = APIRouter(
@@ -47,3 +47,21 @@ async def promote_frame(
         )
     except LookupError:
         raise HTTPException(status_code=404, detail="look frame not found") from None
+
+
+@router.post("/look-frames/{frame_id}/refine", response_model=LookFrameRead)
+async def refine_frame(
+    project_id: str,
+    frame_id: str,
+    body: RefineFrameRequest,
+    auth: AuthCtx = Depends(current_auth),
+    session: AsyncSession = Depends(get_session),
+):
+    """Iteratively refine a look frame with Qwen-Image-Edit (new frame, kept lineage)."""
+    try:
+        frame = await imagegen_service.refine_look_frame(
+            session, project_id, frame_id, body.instruction, auth=auth
+        )
+    except LookupError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
+    return (await asset_service.frames_to_read(session, [frame]))[0]
