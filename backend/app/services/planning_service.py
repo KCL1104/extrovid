@@ -142,6 +142,8 @@ async def _insert_shots(
                 acceptance_rules=shot.acceptance_rules,
                 reference_look_frame_ids=shot.reference_look_frame_ids,
                 transition=shot.transition.value,
+                framing=shot.framing,
+                camera_id=shot.camera_id,
             )
         )
     await session.flush()

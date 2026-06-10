@@ -257,6 +257,8 @@ def _storyboard_dict(text: str) -> dict:
             "acceptance_rules": ["subject clearly in frame", "matches the scene mood"],
             "reference_look_frame_ids": [],
             "transition": ShotTransition.CUT.value,
+            "framing": "product centered, facing camera, focus on the label",
+            "camera_id": i % 2,  # alternate between two camera setups
         }
         for i in range(n)
     ]

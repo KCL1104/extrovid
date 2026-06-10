@@ -152,8 +152,23 @@ class CameraSpec(BaseModel):
 
 
 class PerformanceSpec(BaseModel):
-    subject: str = Field(..., min_length=1)
-    action: str = Field(..., min_length=1)
+    subject: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "WHO/WHAT performs, anchored by visible appearance, not a bare name: "
+            "'Alice (short hair, green dress)' is correct; 'Alice' alone is not. "
+            "Indicate the direction the subject is facing when it matters."
+        ),
+    )
+    action: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Concrete, observable, filmable action — no metaphors, no inner states "
+            "(write 'turns away, avoiding eye contact', never 'feels ashamed')."
+        ),
+    )
     emotion: str | None = None
 
 
@@ -169,6 +184,24 @@ class ShotDTO(BaseModel):
     acceptance_rules: list[str] = Field(..., min_length=1)
     reference_look_frame_ids: list[str] = Field(default_factory=list)
     transition: ShotTransition = ShotTransition.CUT
+    framing: str | None = Field(
+        default=None,
+        description=(
+            "Blocking: where each visible subject sits in the frame, which direction "
+            "they face, and what the focus is on "
+            "(e.g. 'Maya on left third, facing right, focus on her hands')."
+        ),
+    )
+    camera_id: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Index of the physical camera setup. Reuse an existing camera_id when this "
+            "shot could be filmed from the same position; introduce a new id only if "
+            "shot size, angle, and focus differ significantly. A camera that performs "
+            "significant movement may not be reused afterward."
+        ),
+    )
 
     @field_validator("preferred_model")
     @classmethod

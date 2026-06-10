@@ -284,6 +284,8 @@ class ShotRead(BaseModel):
     transition: str
     extra_direction: str | None = None
     character_id: str | None = None
+    framing: str | None = None
+    camera_id: int = 0
 
 
 class ShotUpdate(BaseModel):
@@ -298,12 +300,13 @@ class ShotUpdate(BaseModel):
     acceptance_rules: list[str] | None = Field(default=None, min_length=1)
     extra_direction: str | None = None  # director's notes, fed verbatim into the prompt
     character_id: str | None = None  # cast lock: CharacterProfile of the same project
+    framing: str | None = None  # blocking: subject positions + facing + focus
 
     @model_validator(mode="after")
     def _reject_explicit_nulls(self) -> "ShotUpdate":
         """Optional-to-omit, not optional-to-null: an explicit null on a non-nullable
         shot column would persist and break every later storyboard read."""
-        nullable = {"extra_direction", "character_id"}
+        nullable = {"extra_direction", "character_id", "framing"}
         for field in self.model_fields_set - nullable:
             if getattr(self, field) is None:
                 raise ValueError(f"{field} cannot be null")

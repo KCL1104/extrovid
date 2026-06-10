@@ -75,3 +75,33 @@ def test_bare_shot_still_produces_a_prompt():
     assert "reveal the product" in p
     assert "beat: hero moment" in p
     assert "Avoid" not in p
+
+
+def test_framing_reaches_the_prompt():
+    shot = _shot()
+    shot.framing = "watch on right third, face dial toward camera, focus on the crown"
+    p = compose_shot_prompt(shot)
+    assert "framing: watch on right third, face dial toward camera" in p
+
+
+def test_appearance_anchored_subject():
+    """Cast-locked subjects carry visible appearance inline (ViMax appearance-not-name)."""
+    ch = CharacterProfile(
+        project_id="p",
+        name="Mia",
+        description="red coat, short black hair. Mid-30s.",
+        wardrobe_rules=["always wears the red coat"],
+    )
+    shot = _shot()
+    shot.performance_spec = {"subject": "Mia", "action": "walks toward the window"}
+    p = compose_shot_prompt(shot, character=ch)
+    assert "Mia (red coat, short black hair, always wears the red coat)" in p
+    # the standalone character block stays too
+    assert "featuring Mia" in p
+
+
+def test_appearance_anchor_skips_unmatched_subject():
+    ch = CharacterProfile(project_id="p", name="Mia", description="red coat")
+    shot = _shot()  # subject is "the watch" — no name match, no rewrite
+    p = compose_shot_prompt(shot, character=ch)
+    assert "the watch rotates slowly" in p

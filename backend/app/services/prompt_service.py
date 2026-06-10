@@ -42,8 +42,22 @@ def compose_shot_prompt(
     if has_reference_images:
         parts.append("The main subject matches the reference image")
 
-    # action first — what the camera sees
-    subject_action = f"{perf.get('subject', '')} {perf.get('action', '')}".strip()
+    # action first — what the camera sees. With a cast lock, anchor the subject by
+    # visible appearance inline (the video model never sees the character bible, so
+    # "Alice is walking" must become "Alice (short hair, green dress) is walking").
+    subject = perf.get("subject", "")
+    if character:
+        appearance_bits = []
+        desc = (character.description or "").strip()
+        if desc:
+            appearance_bits.append(desc.split(".")[0].strip())
+        if character.wardrobe_rules:
+            appearance_bits.append(str(character.wardrobe_rules[0]))
+        idx = subject.lower().find(character.name.lower())
+        if appearance_bits and idx >= 0 and "(" not in subject:
+            end = idx + len(character.name)
+            subject = f"{subject[:end]} ({', '.join(appearance_bits)}){subject[end:]}"
+    subject_action = f"{subject} {perf.get('action', '')}".strip()
     parts.append(shot.purpose)
     if subject_action:
         parts.append(subject_action)
@@ -63,6 +77,10 @@ def compose_shot_prompt(
         parts.append(f"camera: {cam_desc}")
     elif vb.get("camera_language"):
         parts.append(f"camera: {vb['camera_language']}")
+
+    # blocking: subject frame positions + facing directions (planned by the storyboard)
+    if shot.framing and shot.framing.strip():
+        parts.append(f"framing: {shot.framing.strip()}")
 
     # visual direction from the persisted scene brief
     style_bits = [vb.get("visual_style"), vb.get("mood")]

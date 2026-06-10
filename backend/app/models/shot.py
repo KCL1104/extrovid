@@ -26,3 +26,7 @@ class Shot(SQLModel, table=True):
     # per-shot detailed direction (PATCH /shots/{id}):
     extra_direction: str | None = None  # free-text director notes -> generation prompt verbatim
     character_id: str | None = Field(default=None, foreign_key="characterprofile.id")
+    # blocking: subject frame positions + facing directions + focus (-> prompt + review)
+    framing: str | None = None
+    # physical camera setup index — shots sharing a camera_id are the same setup
+    camera_id: int = Field(default=0)
