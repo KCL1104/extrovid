@@ -18,7 +18,7 @@ class ProjectCreate(BaseModel):
     # title optional: when blank, the server auto-names it "Project N" for the owner.
     title: str | None = Field(default=None)
     aspect_ratio: AspectRatio = AspectRatio.R9_16
-    target_duration_sec: int = Field(default=20, ge=5, le=120)
+    target_duration_sec: int = Field(default=20, ge=5, le=600)
 
 
 # --- auth ---
@@ -53,7 +53,7 @@ class ProjectUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1)
     status: ProjectStatus | None = None
     aspect_ratio: AspectRatio | None = None
-    target_duration_sec: int | None = Field(default=None, ge=5, le=120)
+    target_duration_sec: int | None = Field(default=None, ge=5, le=600)
 
 
 class ProjectStats(BaseModel):
@@ -118,7 +118,7 @@ class VisualPlansResponse(BaseModel):
 class StoryboardRequest(BaseModel):
     script: ScriptDraft
     concept_specs: list[VisualConceptSetSpec] = []
-    target_duration_sec: int = Field(default=20, ge=5, le=120)
+    target_duration_sec: int = Field(default=20, ge=5, le=600)
 
 
 # --- read models for stored planning artifacts ---
@@ -166,6 +166,12 @@ class GenerateShotRequest(BaseModel):
     # best-of-N fan-out: submit N takes with the same direction; once all land, the
     # highest-scoring passing take is auto-selected (manual selection always wins)
     num_takes: int = Field(default=1, ge=1, le=4)
+
+
+class BatchGenerateRequest(BaseModel):
+    """Render a whole scene/project. With continuation, shots chain on upstream takes."""
+
+    continue_from_previous: bool = False
 
 
 class EditShotRequest(BaseModel):

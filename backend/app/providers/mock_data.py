@@ -49,7 +49,7 @@ def _parse_target_from_brief(text: str, default: int = 20) -> int:
     """Infer a duration like '30s' / '15 sec' / '45 seconds' from free brief text."""
     m = re.search(r"(\d{1,3})\s*(?:s\b|sec|seconds?)", text, flags=re.IGNORECASE)
     if m:
-        return max(5, min(120, int(m.group(1))))
+        return max(5, min(600, int(m.group(1))))
     return default
 
 
@@ -244,6 +244,56 @@ def _clamp(value: int, low: int, high: int) -> int:
     return max(low, min(high, value))
 
 
+def _mock_shot(i: int, scene_order: int, duration: float) -> dict:
+    return {
+        "order": i,
+        "scene_order": scene_order,
+        "purpose": "advance the story beat",
+        "duration_sec": duration,
+        "beat": "beat",
+        "camera_spec": {
+            "shot_size": "MS",
+            "angle": "eye-level",
+            "movement": "static",
+            "lens": None,
+        },
+        "performance_spec": {
+            "subject": "product",
+            "action": "is presented",
+            "emotion": "confident",
+        },
+        "preferred_model": PreferredModel.T2V.value if i % 2 == 0 else PreferredModel.I2V.value,
+        "acceptance_rules": ["subject clearly in frame", "matches the scene mood"],
+        "reference_look_frame_ids": [],
+        "transition": ShotTransition.CUT.value,
+        "framing": "product centered, facing camera, focus on the label",
+        "camera_id": i % 2,  # alternate between two camera setups
+        "first_frame_desc": "the product sits centered on a clean surface, label "
+        "facing camera, soft key light from the left",
+        "last_frame_desc": "the product fills the frame in close-up, label crisp "
+        "and readable",
+        "motion_desc": "slow dolly-in from medium shot to close-up on the product",
+        "variation_type": "medium" if i % 2 else "small",
+    }
+
+
+def _scene_storyboard_dict(text: str) -> dict:
+    """Per-scene shot plan. Shot count scales with the scene budget; durations sum to it."""
+    import math
+
+    scene_order = _marker_int(text, "SCENE_ORDER", 0)
+    budget = float(_marker_int(text, "TARGET_DURATION_SEC", 10))
+    n = _clamp(math.ceil(budget / 10), 2, 10)  # keeps every per-shot duration <= 15s
+    base = round(budget / n, 2)
+    durations = [base] * n
+    durations[-1] = round(budget - base * (n - 1), 2)
+    durations = [min(15.0, max(0.5, d)) for d in durations]
+    return {
+        "scene_order": scene_order,
+        "shots": [_mock_shot(i, scene_order, durations[i]) for i in range(n)],
+    }
+
+
 def _storyboard_dict(text: str) -> dict:
     target = _marker_int(text, "TARGET_DURATION_SEC", 20)
     n = _clamp(round(target / 4), MIN_SHOTS, 10)
@@ -252,39 +302,7 @@ def _storyboard_dict(text: str) -> dict:
     durations[-1] = round(target - base * (n - 1), 2)  # absorb rounding remainder
     # keep within (0, 15]
     durations = [min(15.0, max(0.5, d)) for d in durations]
-    shots = [
-        {
-            "order": i,
-            "scene_order": 0,
-            "purpose": "advance the story beat",
-            "duration_sec": durations[i],
-            "beat": "beat",
-            "camera_spec": {
-                "shot_size": "MS",
-                "angle": "eye-level",
-                "movement": "static",
-                "lens": None,
-            },
-            "performance_spec": {
-                "subject": "product",
-                "action": "is presented",
-                "emotion": "confident",
-            },
-            "preferred_model": PreferredModel.T2V.value if i % 2 == 0 else PreferredModel.I2V.value,
-            "acceptance_rules": ["subject clearly in frame", "matches the scene mood"],
-            "reference_look_frame_ids": [],
-            "transition": ShotTransition.CUT.value,
-            "framing": "product centered, facing camera, focus on the label",
-            "camera_id": i % 2,  # alternate between two camera setups
-            "first_frame_desc": "the product sits centered on a clean surface, label "
-            "facing camera, soft key light from the left",
-            "last_frame_desc": "the product fills the frame in close-up, label crisp "
-            "and readable",
-            "motion_desc": "slow dolly-in from medium shot to close-up on the product",
-            "variation_type": "medium" if i % 2 else "small",
-        }
-        for i in range(n)
-    ]
+    shots = [_mock_shot(i, 0, durations[i]) for i in range(n)]
     return {"scenes": [{"scene_order": 0, "shots": shots}]}
 
 
@@ -316,6 +334,8 @@ def dispatch_mock(messages, info: AgentInfo) -> ModelResponse:
         args = _clarify_dict(text)
     elif "characters" in props:
         args = _cast_dict(text)
+    elif "scene_order" in props and "shots" in props:
+        args = _scene_storyboard_dict(text)
     elif "scenes" in props:
         args = _storyboard_dict(text)
     else:  # pragma: no cover - defensive

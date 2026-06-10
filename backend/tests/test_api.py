@@ -1,6 +1,6 @@
 """API integration tests — exercised against the test database, LLM mocked."""
 
-from app.models.enums import MAX_SHOTS, MIN_SHOTS, ProjectStatus
+from app.models.enums import MAX_SHOTS_PER_SCENE, MIN_SHOTS_PER_SCENE, ProjectStatus
 
 
 async def test_health(client):
@@ -58,7 +58,8 @@ async def test_run_pipeline_end_to_end(client):
     result = r.json()
     assert result["brief"]["target_duration_sec"] == 30
     shots = [s for sc in result["storyboard"]["scenes"] for s in sc["shots"]]
-    assert MIN_SHOTS <= len(shots) <= MAX_SHOTS
+    n_scenes = len(result["script"]["scenes"])
+    assert MIN_SHOTS_PER_SCENE * n_scenes <= len(shots) <= MAX_SHOTS_PER_SCENE * n_scenes
 
     # project advanced to storyboarded
     r = await client.get(f"/api/projects/{pid}")

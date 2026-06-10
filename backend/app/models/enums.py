@@ -86,9 +86,18 @@ PLANNABLE_MODELS_M1 = frozenset({PreferredModel.T2V, PreferredModel.I2V})
 # execution-only (it revises an existing take; there is nothing to plan).
 PLANNABLE_MODELS = frozenset({PreferredModel.T2V, PreferredModel.I2V, PreferredModel.R2V})
 
-# Storyboard global shot-count bounds (spec: a 15-30s video from 5-10 shots).
-MIN_SHOTS = 5
-MAX_SHOTS = 10
+# Per-scene storyboard bounds — no planner ever sees more than one scene's worth of
+# shot design (the ViMax scaling move); scene COUNT scales with duration, scene size
+# doesn't. Global totals are bounded loosely; contiguity is still enforced.
+MIN_SHOTS = 5  # legacy single-call bound (kept for reference)
+MAX_SHOTS = 10  # legacy single-call bound (kept for reference)
+MIN_SHOTS_PER_SCENE = 1
+MAX_SHOTS_PER_SCENE = 10
+MIN_TOTAL_SHOTS = 1
+MAX_TOTAL_SHOTS = 80
+MAX_SCENES = 15
+# a scene physically can't exceed this with <=10 shots of <=15s each
+MAX_SCENE_DURATION_SEC = MAX_SHOTS_PER_SCENE * 15
 
 # Concept-set candidate-frame bounds (spec: 4-up or 8-up concept sets).
 MIN_CONCEPT_FRAMES = 4

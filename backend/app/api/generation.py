@@ -13,8 +13,14 @@ from app.core.auth import AuthCtx, current_auth
 from app.core.db import get_session
 from app.models.generation import GenerationJob, ShotVersion
 from app.models.shot import Shot
-from app.schemas.api import EditShotRequest, GenerateShotRequest, JobRead, ShotVersionRead
-from app.services import generate_service, review_service
+from app.schemas.api import (
+    BatchGenerateRequest,
+    EditShotRequest,
+    GenerateShotRequest,
+    JobRead,
+    ShotVersionRead,
+)
+from app.services import generate_service, planning_service, review_service
 from app.services.asset_service import asset_url
 
 router = APIRouter(
@@ -80,6 +86,60 @@ async def generate_shot(
     version, job = takes[0]
     await session.refresh(version)  # auto-select may have flipped `selected`
     return await _version_read(session, version, job)
+
+
+async def _batch_response(
+    session: AsyncSession, takes: list[tuple[ShotVersion, GenerationJob]]
+) -> list[ShotVersionRead]:
+    return [await _version_read(session, v, j) for v, j in takes]
+
+
+@router.post("/scenes/{scene_order}/generate-all", response_model=list[ShotVersionRead])
+async def generate_scene(
+    project_id: str,
+    scene_order: int,
+    body: BatchGenerateRequest | None = None,
+    auth: AuthCtx = Depends(current_auth),
+    session: AsyncSession = Depends(get_session),
+):
+    """Render every shot of one scene. Keyframed shots submit in parallel; with
+    continue_from_previous, chain links queue until their upstream take lands."""
+    shots = [
+        s
+        for s in await planning_service.list_shots(session, project_id)
+        if s.scene_order == scene_order
+    ]
+    if not shots:
+        raise HTTPException(status_code=404, detail="no shots in that scene")
+    takes = await generate_service.submit_scene_batch(
+        session,
+        project_id,
+        shots,
+        auth=auth,
+        continue_from_previous=body.continue_from_previous if body else False,
+    )
+    return await _batch_response(session, takes)
+
+
+@router.post("/generate-all", response_model=list[ShotVersionRead])
+async def generate_project(
+    project_id: str,
+    body: BatchGenerateRequest | None = None,
+    auth: AuthCtx = Depends(current_auth),
+    session: AsyncSession = Depends(get_session),
+):
+    """Render every shot of the project in one request."""
+    shots = await planning_service.list_shots(session, project_id)
+    if not shots:
+        raise HTTPException(status_code=404, detail="no storyboard yet")
+    takes = await generate_service.submit_scene_batch(
+        session,
+        project_id,
+        shots,
+        auth=auth,
+        continue_from_previous=body.continue_from_previous if body else False,
+    )
+    return await _batch_response(session, takes)
 
 
 @router.get("/shots/{shot_id}/versions", response_model=list[ShotVersionRead])

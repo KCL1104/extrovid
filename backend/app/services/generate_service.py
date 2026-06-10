@@ -90,22 +90,49 @@ async def _auto_first_frame_asset_id(session: AsyncSession, project_id: str) -> 
     return row.image_asset_id if row else None
 
 
+_BACK_VIEW_CUES = ("from behind", "over-the-shoulder", "over the shoulder", "back view",
+                   "walking away", "from the back", "back to camera")
+_SIDE_VIEW_CUES = ("profile", "side view", "from the side", "facing left", "facing right")
+
+
+def _portrait_view_for(shot: Shot | None) -> str:
+    """Match the portrait view to the shot's planned direction (ViMax selection prior:
+    at most ONE portrait view per character, chosen by what the camera will see)."""
+    if shot is None:
+        return "front"
+    text = " ".join(
+        [
+            str(shot.framing or ""),
+            str((shot.performance_spec or {}).get("subject", "")),
+            str((shot.performance_spec or {}).get("action", "")),
+            str(shot.first_frame_desc or ""),
+        ]
+    ).lower()
+    if any(cue in text for cue in _BACK_VIEW_CUES):
+        return "back"
+    if any(cue in text for cue in _SIDE_VIEW_CUES):
+        return "side"
+    return "front"
+
+
 async def _resolve_reference_urls(
     session: AsyncSession,
     project_id: str,
     reference_asset_ids: list[str] | None,
     character_id: str | None,
+    shot: Shot | None = None,
 ) -> list[str]:
     asset_ids: list[str] = list(reference_asset_ids or [])
     if character_id:
         cp = await session.get(CharacterProfile, character_id)
         if cp and cp.project_id == project_id:
-            # portrait sheet first — the clean turnaround is the identity anchor;
-            # in-scene look frames follow as style/context references
-            for view in ("front", "side", "back"):
-                aid = (cp.portrait_assets or {}).get(view)
-                if aid:
-                    asset_ids.append(aid)
+            # ONE portrait view, matched to the shot's direction (back view for
+            # over-the-shoulder, etc.) — the identity anchor ahead of look frames
+            portraits = cp.portrait_assets or {}
+            view = _portrait_view_for(shot)
+            aid = portraits.get(view) or portraits.get("front")
+            if aid:
+                asset_ids.append(aid)
             for fid in cp.reference_look_frame_ids:
                 lf = await session.get(LookFrame, fid)
                 if lf and lf.image_asset_id:
@@ -204,12 +231,9 @@ async def submit_shot(
     continue_from_previous: bool = False,
     batch_id: str | None = None,
     batch_size: int = 1,
+    defer: bool = False,
 ) -> tuple[ShotVersion, GenerationJob]:
-    settings = get_settings()
     await assert_within_cap(session, "video", 1, auth=auth)
-    project = await session.get(Project, project_id)
-    ratio = _ratio_for(project.aspect_ratio if project else "")
-    duration = max(2, min(15, round(shot.duration_sec)))
 
     if character_id is None:
         # cast lock: the shot's persisted character is the default; an explicit request wins
@@ -224,9 +248,57 @@ async def submit_shot(
     if batch_id:
         gen_params["batch_id"] = batch_id
         gen_params["batch_size"] = batch_size
+    if defer:
+        gen_params["deferred"] = True
+
+    version = ShotVersion(
+        shot_id=shot.id,
+        prompt="",
+        status=ShotVersionStatus.DRAFT.value,
+        routing_note="queued — awaiting the previous shot's take (continuation chain)",
+        gen_params=gen_params,
+    )
+    session.add(version)
+    await session.flush()
+    job = GenerationJob(
+        shot_version_id=version.id, provider="dashscope", status=JobStatus.QUEUED.value
+    )
+    session.add(job)
+    await session.flush()
+
+    if defer:
+        # stays QUEUED; the reconciler's dispatch_deferred activates it once the
+        # upstream take lands — DB-backed dependencies, restart-safe by construction
+        await session.commit()
+        return version, job
+    return await _activate_submission(session, project_id, shot, version, job)
+
+
+async def _activate_submission(
+    session: AsyncSession,
+    project_id: str,
+    shot: Shot,
+    version: ShotVersion,
+    job: GenerationJob,
+) -> tuple[ShotVersion, GenerationJob]:
+    """Resolve references/routing, compose the prompt, and submit to the provider.
+
+    Runs either inline (normal submits) or from the reconciler (deferred chain jobs).
+    """
+    settings = get_settings()
+    params = version.gen_params or {}
+    first_frame_asset_id = params.get("first_frame_asset_id")
+    reference_asset_ids = params.get("reference_asset_ids")
+    character_id = params.get("character_id")
+    continue_from_previous = bool(params.get("continue_from_previous"))
+    gen_params = dict(params)
+
+    project = await session.get(Project, project_id)
+    ratio = _ratio_for(project.aspect_ratio if project else "")
+    duration = max(2, min(15, round(shot.duration_sec)))
 
     reference_urls = await _resolve_reference_urls(
-        session, project_id, reference_asset_ids, character_id
+        session, project_id, reference_asset_ids, character_id, shot=shot
     )
 
     # --- routing: decide the input mode and record why ---
@@ -294,20 +366,10 @@ async def submit_shot(
     if negative_prompt:
         gen_params["negative_prompt"] = negative_prompt
 
-    version = ShotVersion(
-        shot_id=shot.id,
-        prompt=prompt,
-        status=ShotVersionStatus.DRAFT.value,
-        routing_note=routing_note,
-        gen_params=gen_params,
-    )
+    version.prompt = prompt
+    version.routing_note = routing_note
+    version.gen_params = gen_params
     session.add(version)
-    await session.flush()
-    job = GenerationJob(
-        shot_version_id=version.id, provider="dashscope", status=JobStatus.QUEUED.value
-    )
-    session.add(job)
-    await session.flush()
 
     sub = await submit_video(
         prompt,
@@ -388,6 +450,87 @@ async def submit_shot_batch(
             )
         )
     return out
+
+
+async def _has_previous_shot(session: AsyncSession, project_id: str, shot: Shot) -> bool:
+    prev = (
+        (
+            await session.execute(
+                select(Shot).where(Shot.project_id == project_id, Shot.order < shot.order)
+            )
+        )
+        .scalars()
+        .first()
+    )
+    return prev is not None
+
+
+async def submit_scene_batch(
+    session: AsyncSession,
+    project_id: str,
+    shots: list[Shot],
+    *,
+    auth: AuthCtx,
+    continue_from_previous: bool = False,
+) -> list[tuple[ShotVersion, GenerationJob]]:
+    """Render a whole scene (or project) in one request.
+
+    Without continuation every shot submits immediately — keyframed shots are already
+    anchored, so they parallelize freely. With continuation, a shot whose upstream take
+    doesn't exist yet is queued as a DEFERRED job; the reconciler activates it when the
+    previous shot's take lands (ViMax's frame-event chaining, done as DB rows).
+    """
+    await assert_within_cap(session, "video", len(shots), auth=auth)
+    out: list[tuple[ShotVersion, GenerationJob]] = []
+    for shot in sorted(shots, key=lambda s: s.order):
+        if not continue_from_previous:
+            out.append(await submit_shot(session, project_id, shot, auth=auth))
+            continue
+        has_prev = await _has_previous_shot(session, project_id, shot)
+        if not has_prev:
+            # nothing to continue from — the chain's anchor renders directly
+            out.append(await submit_shot(session, project_id, shot, auth=auth))
+            continue
+        ready = await review_service.previous_shot_take(session, project_id, shot) is not None
+        out.append(
+            await submit_shot(
+                session,
+                project_id,
+                shot,
+                auth=auth,
+                continue_from_previous=True,
+                defer=not ready,
+            )
+        )
+    return out
+
+
+async def dispatch_deferred(session: AsyncSession) -> int:
+    """Activate QUEUED chain jobs whose upstream take has landed. Returns count."""
+    rows = (
+        await session.execute(
+            select(GenerationJob, ShotVersion)
+            .join(ShotVersion, GenerationJob.shot_version_id == ShotVersion.id)
+            .where(GenerationJob.status == JobStatus.QUEUED.value)
+        )
+    ).all()
+    activated = 0
+    for job, version in rows:
+        if not (version.gen_params or {}).get("deferred"):
+            continue
+        shot = await session.get(Shot, version.shot_id)
+        if shot is None:
+            continue
+        found = await review_service.previous_shot_take(session, shot.project_id, shot)
+        if found is None:
+            continue
+        try:
+            await _activate_submission(session, shot.project_id, shot, version, job)
+            activated += 1
+        except Exception:  # noqa: BLE001 - one bad chain link must not block the rest
+            await session.rollback()
+            log.warning("dispatch.failed job=%s", job.id)
+    return activated
 
 
 async def maybe_autoselect_batch(session: AsyncSession, version: ShotVersion) -> None:
@@ -596,4 +739,9 @@ async def reconcile_running(session: AsyncSession) -> int:
             await poll_and_ingest_job(session, job)
         except Exception:  # noqa: BLE001 - reconciler must not die on one bad job
             await session.rollback()
+    # newly-landed takes may unblock deferred continuation-chain jobs
+    try:
+        await dispatch_deferred(session)
+    except Exception:  # noqa: BLE001
+        await session.rollback()
     return len(jobs)

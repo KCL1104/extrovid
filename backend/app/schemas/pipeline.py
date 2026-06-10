@@ -18,9 +18,11 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.models.enums import (
     MAX_CONCEPT_FRAMES,
-    MAX_SHOTS,
+    MAX_SCENES,
+    MAX_SHOTS_PER_SCENE,
+    MAX_TOTAL_SHOTS,
     MIN_CONCEPT_FRAMES,
-    MIN_SHOTS,
+    MIN_TOTAL_SHOTS,
     PLANNABLE_MODELS,
     AspectRatio,
     ConceptSetStatus,
@@ -42,7 +44,7 @@ class BriefInput(BaseModel):
     product: str | None = None
     story: str | None = None
     platform: str = Field(default="generic", description="tiktok / youtube / instagram / generic")
-    target_duration_sec: int = Field(default=20, ge=5, le=120)
+    target_duration_sec: int = Field(default=20, ge=5, le=600)
     aspect_ratio: AspectRatio = AspectRatio.R9_16
     style: str | None = None
     audience: str | None = None
@@ -70,7 +72,7 @@ class SceneDraft(BaseModel):
 
 class ScriptDraft(BaseModel):
     logline: str = Field(..., min_length=1)
-    scenes: list[SceneDraft] = Field(..., min_length=1, max_length=8)
+    scenes: list[SceneDraft] = Field(..., min_length=1, max_length=MAX_SCENES)
 
     @model_validator(mode="after")
     def _scene_orders_unique(self) -> ScriptDraft:
@@ -292,7 +294,17 @@ class ShotDTO(BaseModel):
 
 class StoryboardScene(BaseModel):
     scene_order: int = Field(..., ge=0)
-    shots: list[ShotDTO] = Field(..., min_length=1)
+    shots: list[ShotDTO] = Field(..., min_length=1, max_length=MAX_SHOTS_PER_SCENE)
+
+
+class SceneShotPlan(BaseModel):
+    """One scene's shot list — the per-scene planning unit (no planner sees more).
+
+    Shot orders are LOCAL to the scene here; the orchestrator renumbers globally in
+    Python (structural indices are never the LLM's job)."""
+
+    scene_order: int = Field(..., ge=0)
+    shots: list[ShotDTO] = Field(..., min_length=1, max_length=MAX_SHOTS_PER_SCENE)
 
 
 class Storyboard(BaseModel):
@@ -310,8 +322,10 @@ class Storyboard(BaseModel):
     def _shot_count_and_contiguous_order(self) -> Storyboard:
         shots = self.all_shots
         n = len(shots)
-        if not (MIN_SHOTS <= n <= MAX_SHOTS):
-            raise ValueError(f"total shot count must be {MIN_SHOTS}..{MAX_SHOTS}, got {n}")
+        if not (MIN_TOTAL_SHOTS <= n <= MAX_TOTAL_SHOTS):
+            raise ValueError(
+                f"total shot count must be {MIN_TOTAL_SHOTS}..{MAX_TOTAL_SHOTS}, got {n}"
+            )
         orders = sorted(shot.order for shot in shots)
         if orders != list(range(n)):
             raise ValueError(

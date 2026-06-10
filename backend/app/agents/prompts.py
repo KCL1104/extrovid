@@ -56,11 +56,13 @@ Given a user's free-text request, extract and complete a structured brief:
 product, story, platform, target_duration_sec, aspect_ratio, style, audience.
 Infer sensible defaults for any missing field; never leave required fields empty.
 Preserve the user's original text verbatim in raw_prompt. Keep target_duration_sec
-between 5 and 120 seconds. Return only the structured object."""
+between 5 and 600 seconds. Return only the structured object."""
 
 SCRIPT_SYSTEM = (
     """You are a short-form video scriptwriter.
-From the structured brief, produce a logline and an ordered list of 1-8 scenes.
+From the structured brief, produce a logline and an ordered list of 1-15 scenes —
+scale the SCENE COUNT with the target duration (a scene should rarely exceed ~60s);
+scenes stay small, their number grows.
 Each scene needs a unique order (starting at 0), a title, a one-line summary, ordered
 beats (each with a clear visual description plus optional narration/dialogue), and an
 estimated duration in seconds. The sum of scene durations should be close to the brief's
@@ -94,16 +96,12 @@ and the concept_set MUST carry the exact scene_order you are given. Return only 
     + T2V_WRITING_RULES
 )
 
-STORYBOARD_SYSTEM = (
-    """You are a storyboard director.
-Break the script into an executable shot list: 5 to 10 shots TOTAL across all scenes,
-globally ordered from 0 with no gaps. For each shot give purpose, duration_sec (>0 and <=15),
+_STORYBOARD_BODY = """ For each shot give purpose, duration_sec (>0 and <=15),
 the beat it serves, a camera_spec (shot_size, angle, movement, optional lens), a
 performance_spec (subject, action, optional emotion), preferred_model ('wan2.7-t2v',
 'wan2.7-i2v', or 'wan2.7-r2v' — prefer 'wan2.7-r2v' when the shot features a recurring
 named character whose appearance must stay consistent), at least one acceptance_rule, and
-a transition. The per-shot durations should sum to approximately the given
-TARGET_DURATION_SEC.
+a transition.
 Blocking: for every shot, fill `framing` — where each visible subject sits in the frame,
 the direction they are facing, and what the focus is on (e.g. "Maya on left third, facing
 right, focus on her hands"). When the shot focuses on a character, name the specific body
@@ -117,5 +115,24 @@ static snapshots of the opening and closing images, and motion_desc as everythin
 happens between them in professional camera terms, referring to characters by visible
 appearance (never bare names). Classify variation_type small/medium/large.
 Return only the structured object."""
+
+# legacy whole-storyboard prompt (single LLM call across all scenes)
+STORYBOARD_SYSTEM = (
+    """You are a storyboard director.
+Break the script into an executable shot list: 5 to 10 shots TOTAL across all scenes,
+globally ordered from 0 with no gaps. The per-shot durations should sum to approximately
+the given TARGET_DURATION_SEC."""
+    + _STORYBOARD_BODY
+    + T2V_WRITING_RULES
+)
+
+# per-scene planning — no planner ever sees more than one scene's worth of shot design
+SCENE_STORYBOARD_SYSTEM = (
+    """You are a storyboard director planning ONE scene at a time.
+Break THIS SCENE (and only this scene) into an executable shot list: 1 to 10 shots,
+each with shot order starting at 0 WITHIN the scene (global numbering is handled
+elsewhere). Set every shot's scene_order to the SCENE_ORDER you are given. The per-shot
+durations should sum to approximately the scene's TARGET_DURATION_SEC."""
+    + _STORYBOARD_BODY
     + T2V_WRITING_RULES
 )

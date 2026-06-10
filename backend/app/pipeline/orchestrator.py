@@ -14,8 +14,9 @@ from app.agents.brief_agent import brief_agent
 from app.agents.cast_agent import cast_agent
 from app.agents.clarify_agent import clarify_agent
 from app.agents.script_agent import script_agent
-from app.agents.storyboard_agent import storyboard_agent
+from app.agents.storyboard_agent import scene_storyboard_agent
 from app.agents.visual_dev_agent import visual_dev_agent
+from app.models.enums import MAX_SCENE_DURATION_SEC
 from app.schemas.api import ClarifyAnswer, ClarifyResult
 from app.schemas.pipeline import (
     BriefInput,
@@ -25,6 +26,7 @@ from app.schemas.pipeline import (
     SceneVisualPlan,
     ScriptDraft,
     Storyboard,
+    StoryboardScene,
     VisualConceptSetSpec,
 )
 
@@ -109,6 +111,40 @@ def cast_block(cast: list[CastMember] | None) -> str:
     return (
         "\nCAST (set character_name to the EXACT name when a shot features one; describe "
         "them by these visible features, never by bare name):\n" + lines
+    )
+
+
+def build_scene_storyboard_prompt(
+    scene: SceneDraft,
+    visual_brief,
+    budget_sec: float,
+    clarifications: list[ClarifyAnswer] | None = None,
+    cast: list[CastMember] | None = None,
+) -> str:
+    beats = "; ".join(
+        " ".join(filter(None, [b.description, b.narration, b.dialogue])) for b in scene.beats
+    )
+    direction = ""
+    if visual_brief is not None:
+        bits = [
+            getattr(visual_brief, "visual_style", None),
+            getattr(visual_brief, "mood", None),
+            getattr(visual_brief, "camera_language", None),
+            getattr(visual_brief, "lighting", None),
+        ]
+        joined = ", ".join(b for b in bits if b)
+        if joined:
+            direction = f"\nVisual direction (honor it in camera_spec choices): {joined}"
+    return (
+        "Plan the shot list for this ONE scene.\n"
+        f"SCENE_ORDER={scene.order}\n"
+        f"TARGET_DURATION_SEC={budget_sec:g}\n"
+        f"Title: {scene.title}\n"
+        f"Summary: {scene.summary}\n"
+        f"Beats: {beats}"
+        + direction
+        + cast_block(cast)
+        + creative_direction_block(clarifications)
     )
 
 
@@ -198,13 +234,40 @@ async def run_storyboard(
     clarifications: list[ClarifyAnswer] | None = None,
     cast: list[CastMember] | None = None,
 ) -> Storyboard:
-    result = await storyboard_agent.run(
-        build_storyboard_prompt(
-            script, visual_briefs, concept_specs, target_duration_sec, clarifications, cast
-        ),
-        deps=target_duration_sec,
+    """Per-scene fan-out: each scene is planned by its own agent call against its own
+    duration budget; global shot numbering is computed in Python afterwards (structural
+    indices are never the LLM's job). This is what breaks the 5-10-shot ceiling."""
+    briefs_by_order = {vb.scene_order: vb for vb in visual_briefs}
+    total_est = sum(s.est_duration_sec for s in script.scenes) or 1.0
+    scale = target_duration_sec / total_est
+
+    async def plan_scene(scene: SceneDraft):
+        budget = min(MAX_SCENE_DURATION_SEC, round(scene.est_duration_sec * scale, 1))
+        result = await scene_storyboard_agent.run(
+            build_scene_storyboard_prompt(
+                scene, briefs_by_order.get(scene.order), budget, clarifications, cast
+            ),
+            deps=budget,
+        )
+        return scene.order, result.output
+
+    plans = dict(
+        await asyncio.gather(*(plan_scene(scene) for scene in sorted(script.scenes, key=lambda s: s.order)))
     )
-    return result.output
+
+    # assemble: scenes in script order, shots renumbered globally, scene_order enforced
+    scenes_out: list[StoryboardScene] = []
+    next_order = 0
+    for scene in sorted(script.scenes, key=lambda s: s.order):
+        plan = plans[scene.order]
+        shots = []
+        for shot in sorted(plan.shots, key=lambda s: s.order):
+            shots.append(
+                shot.model_copy(update={"order": next_order, "scene_order": scene.order})
+            )
+            next_order += 1
+        scenes_out.append(StoryboardScene(scene_order=scene.order, shots=shots))
+    return Storyboard(scenes=scenes_out)
 
 
 # --------------------------------------------------------------------------- #

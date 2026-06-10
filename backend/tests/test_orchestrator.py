@@ -3,7 +3,7 @@
 import pytest
 
 from app.agents.storyboard_agent import DURATION_TOLERANCE
-from app.models.enums import MAX_SHOTS, MIN_SHOTS, PLANNABLE_MODELS
+from app.models.enums import MAX_SHOTS_PER_SCENE, MIN_SHOTS_PER_SCENE, PLANNABLE_MODELS
 from app.pipeline.orchestrator import run_pipeline
 from app.schemas.pipeline import BriefInput, PipelineResult
 
@@ -20,7 +20,11 @@ async def test_golden_path_brief_to_storyboard():
 
     sb = result.storyboard
     shots = sb.all_shots
-    assert MIN_SHOTS <= len(shots) <= MAX_SHOTS
+    n_scenes = len(result.script.scenes)
+    # per-scene planning: each scene contributes 1-10 shots
+    assert MIN_SHOTS_PER_SCENE * n_scenes <= len(shots) <= MAX_SHOTS_PER_SCENE * n_scenes
+    # one storyboard scene per script scene, shots tagged with their scene
+    assert {sc.scene_order for sc in sb.scenes} == {s.order for s in result.script.scenes}
     # contiguous global order is guaranteed by the schema validator; re-assert here
     assert sorted(s.order for s in shots) == list(range(len(shots)))
     assert all(0 < s.duration_sec <= 15 for s in shots)

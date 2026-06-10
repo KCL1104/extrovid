@@ -88,14 +88,14 @@ def make_visual_brief(scene_order: int = 0) -> VisualBrief:
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.parametrize("n", [5, 6, 10])
+@pytest.mark.parametrize("n", [1, 4, 5, 6, 10])
 def test_storyboard_valid_shot_counts(n):
     sb = make_storyboard(n)
     assert len(sb.all_shots) == n
     assert sb.total_duration_sec == pytest.approx(3.0 * n)
 
 
-@pytest.mark.parametrize("n", [0, 1, 4, 11, 15])
+@pytest.mark.parametrize("n", [0, 11, 15])  # >10 violates the per-scene cap
 def test_storyboard_rejects_out_of_bounds_shot_count(n):
     with pytest.raises(ValidationError):
         make_storyboard(n)
@@ -196,7 +196,7 @@ def test_script_rejects_duplicate_scene_order():
 
 def test_script_rejects_too_many_scenes():
     with pytest.raises(ValidationError):
-        ScriptDraft(logline="x", scenes=[_scene(i) for i in range(9)])
+        ScriptDraft(logline="x", scenes=[_scene(i) for i in range(16)])
 
 
 def test_scene_visual_plan_requires_matching_scene_order():
@@ -223,7 +223,7 @@ def test_brief_requires_raw_prompt():
         BriefInput(raw_prompt="")
 
 
-@pytest.mark.parametrize("dur", [4, 121, 0])
+@pytest.mark.parametrize("dur", [4, 601, 0])
 def test_brief_rejects_bad_duration(dur):
     with pytest.raises(ValidationError):
         BriefInput(raw_prompt="x", target_duration_sec=dur)

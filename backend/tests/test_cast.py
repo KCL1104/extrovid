@@ -7,8 +7,8 @@ from pydantic_ai.messages import ModelResponse, ToolCallPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from app.agents.cast_agent import cast_agent
-from app.agents.storyboard_agent import storyboard_agent
-from app.providers.mock_data import _storyboard_dict, _user_text
+from app.agents.storyboard_agent import scene_storyboard_agent
+from app.providers.mock_data import _scene_storyboard_dict, _user_text
 
 
 async def test_run_pipeline_extracts_and_persists_cast(client):
@@ -51,14 +51,14 @@ async def test_storyboard_character_name_auto_cast_locks(client):
     await client.post(f"/api/projects/{pid}/run", json={"raw_prompt": "a 20s hero story"})
 
     def fn(messages, info: AgentInfo) -> ModelResponse:
-        args = _storyboard_dict(_user_text(messages))
-        args["scenes"][0]["shots"][0]["character_name"] = "Maya"  # exact cast name
-        args["scenes"][0]["shots"][1]["character_name"] = "Nobody Known"  # no match -> null
+        args = _scene_storyboard_dict(_user_text(messages))
+        args["shots"][0]["character_name"] = "Maya"  # exact cast name
+        args["shots"][1]["character_name"] = "Nobody Known"  # no match -> null
         name = info.output_tools[0].name
         return ModelResponse(parts=[ToolCallPart(tool_name=name, args=args)])
 
     script = (await client.get(f"/api/projects/{pid}/script")).json()
-    with storyboard_agent.override(model=FunctionModel(fn)):
+    with scene_storyboard_agent.override(model=FunctionModel(fn)):
         r = await client.post(
             f"/api/projects/{pid}/storyboard",
             json={
@@ -107,7 +107,8 @@ async def test_portrait_sheet_generation_and_r2v_anchor(client):
     assert r2.status_code == 200
     v = r2.json()
     assert "r2v" in (v["model"] or "")
-    assert "3 reference image(s)" in v["routing_note"]
+    # ONE portrait view (matched to the shot's direction) anchors identity
+    assert "1 reference image(s)" in v["routing_note"]
 
 
 async def test_portraits_404_on_unknown_character(client):
