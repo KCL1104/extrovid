@@ -236,6 +236,12 @@ async def submit_shot(
         first_frame_asset_id, continuation_note = await _continuation_frame_asset_id(
             session, project_id, shot
         )
+    if first_frame_asset_id is None and shot.keyframe_frame_id:
+        # the shot's planned keyframe anchors composition + identity (composes with r2v)
+        kf = await session.get(LookFrame, shot.keyframe_frame_id)
+        if kf and kf.image_asset_id:
+            first_frame_asset_id = kf.image_asset_id
+            continuation_note = "planned keyframe anchors composition and identity"
     if (
         first_frame_asset_id is None
         and not reference_urls

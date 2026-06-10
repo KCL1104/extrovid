@@ -163,6 +163,10 @@ async def _insert_shots(
                 framing=shot.framing,
                 camera_id=shot.camera_id,
                 character_id=character_id,
+                first_frame_desc=shot.first_frame_desc,
+                last_frame_desc=shot.last_frame_desc,
+                motion_desc=shot.motion_desc,
+                variation_type=shot.variation_type,
             )
         )
     await session.flush()

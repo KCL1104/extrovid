@@ -60,7 +60,11 @@ def compose_shot_prompt(
             subject = f"{subject[:end]} ({', '.join(appearance_bits)}){subject[end:]}"
     subject_action = f"{subject} {perf.get('action', '')}".strip()
     parts.append(shot.purpose)
-    if subject_action:
+    # the planned motion (keyframe contract) is the most precise action description —
+    # it already references characters by visible appearance, never bare names
+    if shot.motion_desc and shot.motion_desc.strip():
+        parts.append(shot.motion_desc.strip())
+    elif subject_action:
         parts.append(subject_action)
     if perf.get("emotion"):
         parts.append(f"mood: {perf['emotion']}")
@@ -116,12 +120,66 @@ def compose_shot_prompt(
         if character.wardrobe_rules:
             parts.append(f"wardrobe: {', '.join(str(r) for r in character.wardrobe_rules[:3])}")
 
-    ending_hint = _TRANSITION_ENDINGS.get(shot.transition or "")
-    if ending_hint:
-        parts.append(ending_hint)
+    # a planned closing snapshot beats the generic transition-shaped hint
+    if shot.last_frame_desc and shot.last_frame_desc.strip():
+        parts.append(f"ending state: {shot.last_frame_desc.strip()}")
+    else:
+        ending_hint = _TRANSITION_ENDINGS.get(shot.transition or "")
+        if ending_hint:
+            parts.append(ending_hint)
 
     parts.append(f"beat: {shot.beat}")
 
+    return _join(parts)
+
+
+def compose_keyframe_prompt(
+    shot: Shot,
+    *,
+    visual_brief: dict | None = None,
+    style_pack: StylePack | None = None,
+    character: CharacterProfile | None = None,
+) -> str:
+    """Image prompt for the shot's opening keyframe — a pure static snapshot.
+
+    Identity and composition resolve in the image domain (cheap, retryable) before any
+    video is rendered; the video model then only animates from this anchor.
+    """
+    cam = shot.camera_spec or {}
+    perf = shot.performance_spec or {}
+    vb = visual_brief or {}
+
+    parts: list[str] = []
+    if shot.first_frame_desc and shot.first_frame_desc.strip():
+        parts.append(shot.first_frame_desc.strip())
+    else:
+        subject = perf.get("subject", "")
+        parts.append(
+            f"the opening frame of a shot: {subject} in place, frozen at the moment "
+            "the shot begins"
+        )
+        if shot.framing:
+            parts.append(f"framing: {shot.framing}")
+    if character:
+        desc = (character.description or "").strip()
+        if desc:
+            parts.append(f"the character is {character.name}: {desc}")
+        if character.wardrobe_rules:
+            parts.append(f"wardrobe: {', '.join(str(r) for r in character.wardrobe_rules[:2])}")
+    cam_desc = " ".join(filter(None, [cam.get("shot_size"), cam.get("angle"), cam.get("lens")]))
+    if cam_desc:
+        parts.append(f"camera: {cam_desc}")
+    style_bits = [vb.get("visual_style"), vb.get("mood")]
+    if style_pack and style_pack.visual_style:
+        style_bits.append(style_pack.visual_style)
+    style = ", ".join(dict.fromkeys(s for s in style_bits if s))
+    if style:
+        parts.append(f"style: {style}")
+    if vb.get("lighting"):
+        parts.append(f"lighting: {vb['lighting']}")
+    if vb.get("environment_notes"):
+        parts.append(f"setting: {vb['environment_notes']}")
+    parts.append("a single crisp still frame, no motion blur")
     return _join(parts)
 
 

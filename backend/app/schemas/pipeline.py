@@ -12,6 +12,8 @@ Validation rules encode the spec's acceptance constraints:
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.models.enums import (
@@ -234,6 +236,38 @@ class ShotDTO(BaseModel):
         description=(
             "When the shot features a cast member, their EXACT canonical name from the "
             "CAST list (enables the automatic cast lock). Null for shots without cast."
+        ),
+    )
+    first_frame_desc: str | None = Field(
+        default=None,
+        description=(
+            "Pure static snapshot of the shot's OPENING image: composition, each visible "
+            "subject's position and facing, lighting. NO ongoing actions — 'about to "
+            "stand up' is unacceptable; write 'sitting on the chair, leaning slightly "
+            "forward'."
+        ),
+    )
+    last_frame_desc: str | None = Field(
+        default=None,
+        description=(
+            "Pure static snapshot of the shot's CLOSING image, reflecting the final "
+            "state after all camera and subject motion. Same snapshot rules."
+        ),
+    )
+    motion_desc: str | None = Field(
+        default=None,
+        description=(
+            "Everything that happens between the first and last frame, in professional "
+            "camera terms (dolly, pan, push-in). Refer to characters by visible "
+            "appearance, never bare name: 'Alice (short hair, green dress) is walking'."
+        ),
+    )
+    variation_type: Literal["small", "medium", "large"] = Field(
+        default="small",
+        description=(
+            "Intra-shot change: 'large' = composition/focus changes significantly (wide "
+            "to close-up); 'medium' = subjects turn or reposition (back to front); "
+            "'small' = expression or minor pose changes only."
         ),
     )
     camera_id: int = Field(

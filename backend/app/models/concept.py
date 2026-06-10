@@ -27,7 +27,10 @@ class VisualConceptSet(SQLModel, table=True):
 class LookFrame(SQLModel, table=True):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
     project_id: str = Field(foreign_key="project.id", index=True)
-    concept_set_id: str = Field(foreign_key="visualconceptset.id", index=True)
+    # nullable: shot keyframes are LookFrames without a concept set
+    concept_set_id: str | None = Field(
+        default=None, foreign_key="visualconceptset.id", index=True
+    )
     prompt: str
     source_model: str | None = "qwen-image"  # planned, not invoked in M1
     image_asset_id: str | None = None  # ALWAYS None this milestone

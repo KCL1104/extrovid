@@ -276,6 +276,12 @@ def _storyboard_dict(text: str) -> dict:
             "transition": ShotTransition.CUT.value,
             "framing": "product centered, facing camera, focus on the label",
             "camera_id": i % 2,  # alternate between two camera setups
+            "first_frame_desc": "the product sits centered on a clean surface, label "
+            "facing camera, soft key light from the left",
+            "last_frame_desc": "the product fills the frame in close-up, label crisp "
+            "and readable",
+            "motion_desc": "slow dolly-in from medium shot to close-up on the product",
+            "variation_type": "medium" if i % 2 else "small",
         }
         for i in range(n)
     ]

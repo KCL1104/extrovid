@@ -111,6 +111,11 @@ part in focus. Never describe elements that would not be visible in frame.
 Camera positions: give every shot a `camera_id`. Reuse an existing camera_id when the new
 shot could be filmed from the same physical camera position; introduce a new id only if the
 shot size, angle, and focus differ significantly. A camera that performs significant
-movement may not be reused afterward. Return only the structured object."""
+movement may not be reused afterward.
+Keyframe contract: for each shot also write first_frame_desc and last_frame_desc as pure
+static snapshots of the opening and closing images, and motion_desc as everything that
+happens between them in professional camera terms, referring to characters by visible
+appearance (never bare names). Classify variation_type small/medium/large.
+Return only the structured object."""
     + T2V_WRITING_RULES
 )

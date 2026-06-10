@@ -30,3 +30,10 @@ class Shot(SQLModel, table=True):
     framing: str | None = None
     # physical camera setup index — shots sharing a camera_id are the same setup
     camera_id: int = Field(default=0)
+    # keyframe contract: planned opening/closing snapshots + the motion between them
+    first_frame_desc: str | None = None
+    last_frame_desc: str | None = None
+    motion_desc: str | None = None
+    variation_type: str = Field(default="small")  # small | medium | large
+    # the generated keyframe image (a LookFrame) used as this shot's i2v/r2v seed
+    keyframe_frame_id: str | None = Field(default=None, foreign_key="lookframe.id")
