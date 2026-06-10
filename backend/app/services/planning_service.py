@@ -14,6 +14,7 @@ from app.models.project import Brief, Project
 from app.models.scene import Scene
 from app.models.shot import Shot
 from app.schemas.api import ClarifyAnswer, ShotUpdate
+from app.services import memory_service
 from app.schemas.pipeline import (
     BriefInput,
     PipelineResult,
@@ -135,8 +136,15 @@ async def _insert_shots(
     pid: str,
     storyboard: Storyboard,
     scene_id_by_order: dict[int, str],
+    character_id_by_name: dict[str, str] | None = None,
 ) -> None:
+    names = character_id_by_name or {}
     for shot in storyboard.all_shots:
+        # automatic cast lock: the storyboard's canonical character_name resolves to the
+        # CharacterProfile created by the cast stage (or by an earlier promote)
+        character_id = (
+            names.get(shot.character_name.strip().lower()) if shot.character_name else None
+        )
         session.add(
             Shot(
                 project_id=pid,
@@ -154,6 +162,7 @@ async def _insert_shots(
                 transition=shot.transition.value,
                 framing=shot.framing,
                 camera_id=shot.camera_id,
+                character_id=character_id,
             )
         )
     await session.flush()
@@ -177,6 +186,30 @@ async def replace_brief(
 ) -> None:
     await _clear_brief(session, project_id)
     await _insert_brief(session, project_id, brief, clarifications)
+
+
+async def stored_cast(session: AsyncSession, project_id: str):
+    """The project's CharacterProfiles as CastMember DTOs (for storyboard grounding)."""
+    from app.models.memory import CharacterProfile
+    from app.schemas.pipeline import CastMember
+
+    rows = (
+        (
+            await session.execute(
+                select(CharacterProfile).where(CharacterProfile.project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [
+        CastMember(
+            name=r.name,
+            static_features=r.description or "appearance unspecified",
+            dynamic_features="; ".join(str(w) for w in r.wardrobe_rules) or "wardrobe unspecified",
+        )
+        for r in rows
+    ]
 
 
 async def stored_clarifications(session: AsyncSession, project_id: str) -> list[ClarifyAnswer]:
@@ -218,9 +251,12 @@ async def replace_shots(
     project_id: str,
     storyboard: Storyboard,
     scene_id_by_order: dict[int, str],
+    character_id_by_name: dict[str, str] | None = None,
 ) -> None:
     await _clear_shots(session, project_id)
-    await _insert_shots(session, project_id, storyboard, scene_id_by_order)
+    await _insert_shots(
+        session, project_id, storyboard, scene_id_by_order, character_id_by_name
+    )
 
 
 async def update_shot(session: AsyncSession, shot: Shot, patch: ShotUpdate) -> Shot:
@@ -250,7 +286,9 @@ async def persist_pipeline(
     await _insert_concept_sets(
         session, project.id, result.concept_specs, mapping, result.visual_briefs
     )
-    await _insert_shots(session, project.id, result.storyboard, mapping)
+    await memory_service.upsert_cast(session, project.id, result.cast)
+    names = await memory_service.character_id_by_name(session, project.id)
+    await _insert_shots(session, project.id, result.storyboard, mapping, names)
 
     project.status = ProjectStatus.STORYBOARDED.value
     project.aspect_ratio = result.brief.aspect_ratio.value

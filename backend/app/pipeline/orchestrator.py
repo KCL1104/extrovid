@@ -11,6 +11,7 @@ mock model stays consistent with the brief; real Qwen also benefits from the exp
 import asyncio
 
 from app.agents.brief_agent import brief_agent
+from app.agents.cast_agent import cast_agent
 from app.agents.clarify_agent import clarify_agent
 from app.agents.script_agent import script_agent
 from app.agents.storyboard_agent import storyboard_agent
@@ -18,6 +19,7 @@ from app.agents.visual_dev_agent import visual_dev_agent
 from app.schemas.api import ClarifyAnswer, ClarifyResult
 from app.schemas.pipeline import (
     BriefInput,
+    CastMember,
     PipelineResult,
     SceneDraft,
     SceneVisualPlan,
@@ -84,12 +86,39 @@ def build_visual_prompt(
     )
 
 
+def build_cast_prompt(script: ScriptDraft) -> str:
+    scene_lines = []
+    for s in script.scenes:
+        beats = "; ".join(
+            " ".join(filter(None, [b.description, b.narration, b.dialogue])) for b in s.beats
+        )
+        scene_lines.append(f"- scene {s.order} ({s.title}): {s.summary}. Beats: {beats}")
+    return (
+        "Extract the cast from this script.\n"
+        f"Logline: {script.logline}\n"
+        "Scenes:\n" + "\n".join(scene_lines)
+    )
+
+
+def cast_block(cast: list[CastMember] | None) -> str:
+    if not cast:
+        return ""
+    lines = "".join(
+        f"- {c.name}: {c.static_features}; wearing {c.dynamic_features}\n" for c in cast
+    )
+    return (
+        "\nCAST (set character_name to the EXACT name when a shot features one; describe "
+        "them by these visible features, never by bare name):\n" + lines
+    )
+
+
 def build_storyboard_prompt(
     script: ScriptDraft,
     visual_briefs: list,
     concept_specs: list[VisualConceptSetSpec],
     target_duration_sec: int,
     clarifications: list[ClarifyAnswer] | None = None,
+    cast: list[CastMember] | None = None,
 ) -> str:
     # the storyboard must see the look-dev direction, not just the script — camera
     # language and mood per scene should shape shot sizes, movement, and pacing
@@ -119,6 +148,7 @@ def build_storyboard_prompt(
         f"Concept sets available: {len(concept_specs)}\n"
         "Honor each scene's visual direction in camera_spec choices. "
         "Produce 5-10 shots total, globally ordered from 0, durations summing near the target."
+        + cast_block(cast)
         + creative_direction_block(clarifications)
     )
 
@@ -148,6 +178,11 @@ async def run_script(
     return result.output
 
 
+async def run_cast(script: ScriptDraft) -> list[CastMember]:
+    result = await cast_agent.run(build_cast_prompt(script))
+    return result.output.characters
+
+
 async def run_visual_plan(
     scene: SceneDraft, clarifications: list[ClarifyAnswer] | None = None
 ) -> SceneVisualPlan:
@@ -161,10 +196,11 @@ async def run_storyboard(
     concept_specs: list[VisualConceptSetSpec],
     target_duration_sec: int,
     clarifications: list[ClarifyAnswer] | None = None,
+    cast: list[CastMember] | None = None,
 ) -> Storyboard:
     result = await storyboard_agent.run(
         build_storyboard_prompt(
-            script, visual_briefs, concept_specs, target_duration_sec, clarifications
+            script, visual_briefs, concept_specs, target_duration_sec, clarifications, cast
         ),
         deps=target_duration_sec,
     )
@@ -182,18 +218,21 @@ async def run_pipeline(
     filled = await run_brief(brief_in.raw_prompt, clarifications)
     script = await run_script(filled, clarifications)
 
-    plans = await asyncio.gather(
-        *(run_visual_plan(scene, clarifications) for scene in script.scenes)
+    # cast extraction and per-scene visual dev are independent — run concurrently
+    cast, *plans = await asyncio.gather(
+        run_cast(script),
+        *(run_visual_plan(scene, clarifications) for scene in script.scenes),
     )
     visual_briefs = [plan.visual_brief for plan in plans]
     concept_specs = [plan.concept_set for plan in plans]
 
     storyboard = await run_storyboard(
-        script, visual_briefs, concept_specs, filled.target_duration_sec, clarifications
+        script, visual_briefs, concept_specs, filled.target_duration_sec, clarifications, cast
     )
     return PipelineResult(
         brief=filled,
         script=script,
+        cast=cast,
         visual_briefs=visual_briefs,
         concept_specs=concept_specs,
         storyboard=storyboard,

@@ -20,9 +20,8 @@ async def test_promote_character_then_listed_with_thumbnail(client):
     )
     assert r.status_code == 200
     chars = (await client.get(f"/api/projects/{pid}/characters")).json()
-    assert len(chars) == 1
-    assert chars[0]["name"] == "Hero"
-    assert len(chars[0]["reference_image_urls"]) >= 1
+    hero = next(c for c in chars if c["name"] == "Hero")  # auto-extracted cast coexists
+    assert len(hero["reference_image_urls"]) >= 1
 
 
 async def test_generate_shot_with_character_uses_r2v(client):
@@ -31,7 +30,8 @@ async def test_generate_shot_with_character_uses_r2v(client):
         f"/api/projects/{pid}/look-frames/{frame['id']}/promote",
         json={"target": "character_ref", "name": "Hero"},
     )
-    char_id = (await client.get(f"/api/projects/{pid}/characters")).json()[0]["id"]
+    chars = (await client.get(f"/api/projects/{pid}/characters")).json()
+    char_id = next(c["id"] for c in chars if c["name"] == "Hero")
     v = (
         await client.post(
             f"/api/projects/{pid}/shots/{shot_ids[0]}/generate", json={"character_id": char_id}

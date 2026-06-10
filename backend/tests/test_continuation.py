@@ -49,7 +49,8 @@ async def test_continuation_composes_with_cast(client):
         f"/api/projects/{pid}/look-frames/{frame['id']}/promote",
         json={"target": "character_ref", "name": "Hero"},
     )
-    char_id = (await client.get(f"/api/projects/{pid}/characters")).json()[0]["id"]
+    chars = (await client.get(f"/api/projects/{pid}/characters")).json()
+    char_id = next(c["id"] for c in chars if c["name"] == "Hero")
 
     await client.post(f"/api/projects/{pid}/shots/{shot_ids[0]}/generate")
     r = await client.post(

@@ -19,6 +19,9 @@ class CharacterProfile(SQLModel, table=True):
     wardrobe_rules: list = Field(default_factory=list, sa_column=Column(JSON))
     forbidden_changes: list = Field(default_factory=list, sa_column=Column(JSON))
     reference_look_frame_ids: list = Field(default_factory=list, sa_column=Column(JSON))
+    # canonical multi-view turnaround (image ASSET ids): {"front": id, "side": id, "back": id}
+    # — the identity anchor prepended to every r2v reference set
+    portrait_assets: dict = Field(default_factory=dict, sa_column=Column(JSON))
 
 
 class StylePack(SQLModel, table=True):

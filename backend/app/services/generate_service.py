@@ -99,6 +99,12 @@ async def _resolve_reference_urls(
     if character_id:
         cp = await session.get(CharacterProfile, character_id)
         if cp and cp.project_id == project_id:
+            # portrait sheet first — the clean turnaround is the identity anchor;
+            # in-scene look frames follow as style/context references
+            for view in ("front", "side", "back"):
+                aid = (cp.portrait_assets or {}).get(view)
+                if aid:
+                    asset_ids.append(aid)
             for fid in cp.reference_look_frame_ids:
                 lf = await session.get(LookFrame, fid)
                 if lf and lf.image_asset_id:

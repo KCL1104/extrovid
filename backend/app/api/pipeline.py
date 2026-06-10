@@ -22,7 +22,7 @@ from app.schemas.pipeline import (
     Storyboard,
     VisualBrief,
 )
-from app.services import planning_service
+from app.services import memory_service, planning_service
 
 router = APIRouter(
     prefix="/projects/{project_id}", tags=["pipeline"], dependencies=[Depends(get_owned_project)]
@@ -102,11 +102,13 @@ async def generate_storyboard(
     )
     visual_briefs = [VisualBrief.model_validate(r.visual_brief) for r in rows]
     clar = await planning_service.stored_clarifications(session, project_id)
+    cast = await planning_service.stored_cast(session, project_id)
     storyboard = await orchestrator.run_storyboard(
-        body.script, visual_briefs, body.concept_specs, body.target_duration_sec, clar
+        body.script, visual_briefs, body.concept_specs, body.target_duration_sec, clar, cast
     )
     mapping = {s.order: s.id for s in await planning_service.list_scenes(session, project_id)}
-    await planning_service.replace_shots(session, project_id, storyboard, mapping)
+    names = await memory_service.character_id_by_name(session, project_id)
+    await planning_service.replace_shots(session, project_id, storyboard, mapping, names)
     project = await session.get(Project, project_id)
     if project:
         project.status = ProjectStatus.STORYBOARDED.value

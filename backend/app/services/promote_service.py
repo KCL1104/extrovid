@@ -33,7 +33,12 @@ async def promote_look_frame(
         created["style_pack_id"] = sp.id
     elif target == PromotedAs.CHARACTER_REF:
         cp = CharacterProfile(
-            project_id=project_id, name=name or "Character", reference_look_frame_ids=[frame_id]
+            project_id=project_id,
+            name=name or "Character",
+            # seed a renderable description from the frame's prompt — the portrait
+            # sheet and appearance-anchored prompts need features to work from
+            description=frame.prompt[:300],
+            reference_look_frame_ids=[frame_id],
         )
         session.add(cp)
         await session.flush()

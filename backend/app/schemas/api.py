@@ -174,6 +174,8 @@ class CharacterRead(BaseModel):
     name: str
     description: str | None = None
     reference_image_urls: list[str] = []
+    wardrobe_rules: list[str] = []
+    portrait_image_urls: dict[str, str] = {}  # {"front": url, "side": url, "back": url}
 
 
 class StylePackRead(BaseModel):

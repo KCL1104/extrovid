@@ -79,6 +79,43 @@ class ScriptDraft(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
+# Stage 1b — Cast (planned characters, extracted from the script)
+# --------------------------------------------------------------------------- #
+
+
+class CastMember(BaseModel):
+    """A planned character. Features are renderable-only — they feed image/video models."""
+
+    name: str = Field(..., min_length=1, description="Canonical name; group coreferences.")
+    static_features: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Visualizable, permanent traits only: gender, age range, build, concrete facial "
+            "features (e.g. 'large eyes, a high nose bridge'), hairstyle, skin tone. NEVER "
+            "personality, role, or relationships."
+        ),
+    )
+    dynamic_features: str = Field(
+        ...,
+        min_length=1,
+        description="Scene-spanning wardrobe/props with specific colors (e.g. 'worn red "
+        "coat over a grey hoodie, silver pendant').",
+    )
+
+
+class CastList(BaseModel):
+    characters: list[CastMember] = Field(default_factory=list, max_length=6)
+
+    @model_validator(mode="after")
+    def _names_unique(self) -> CastList:
+        names = [c.name.strip().lower() for c in self.characters]
+        if len(set(names)) != len(names):
+            raise ValueError("cast member names must be unique (group coreferences)")
+        return self
+
+
+# --------------------------------------------------------------------------- #
 # Stage 2 — Visual brief + concept set spec (per scene)
 # --------------------------------------------------------------------------- #
 
@@ -192,6 +229,13 @@ class ShotDTO(BaseModel):
             "(e.g. 'Maya on left third, facing right, focus on her hands')."
         ),
     )
+    character_name: str | None = Field(
+        default=None,
+        description=(
+            "When the shot features a cast member, their EXACT canonical name from the "
+            "CAST list (enables the automatic cast lock). Null for shots without cast."
+        ),
+    )
     camera_id: int = Field(
         default=0,
         ge=0,
@@ -250,6 +294,7 @@ class Storyboard(BaseModel):
 class PipelineResult(BaseModel):
     brief: BriefInput
     script: ScriptDraft
+    cast: list[CastMember] = Field(default_factory=list)
     visual_briefs: list[VisualBrief]
     concept_specs: list[VisualConceptSetSpec]
     storyboard: Storyboard

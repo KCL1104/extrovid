@@ -130,6 +130,23 @@ def _scene_visual_plan_dict(text: str) -> dict:
     }
 
 
+def _cast_dict(text: str) -> dict:
+    """Deterministic planned cast. CAST_FORCE_EMPTY lets tests exercise no-cast scripts."""
+    if "CAST_FORCE_EMPTY" in text:
+        return {"characters": []}
+    return {
+        "characters": [
+            {
+                "name": "Maya",
+                "static_features": "woman in her early 30s, athletic build, shoulder-length "
+                "black hair, warm brown eyes, light tan skin",
+                "dynamic_features": "rust-orange utility jacket over a cream tee, dark "
+                "slim jeans, brass wristwatch",
+            }
+        ]
+    }
+
+
 def _review_dict(text: str) -> dict:
     """Deterministic dailies review. The marker REVIEW_FORCE=revise lets tests (and the
     mock pipeline) exercise the revise path; everything else passes with a solid score."""
@@ -291,6 +308,8 @@ def dispatch_mock(messages, info: AgentInfo) -> ModelResponse:
         args = _review_dict(text)
     elif "needs_clarification" in props:
         args = _clarify_dict(text)
+    elif "characters" in props:
+        args = _cast_dict(text)
     elif "scenes" in props:
         args = _storyboard_dict(text)
     else:  # pragma: no cover - defensive

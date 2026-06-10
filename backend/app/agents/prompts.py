@@ -68,6 +68,20 @@ target duration. Be concrete and shootable. Return only the structured object.""
     + T2V_WRITING_RULES
 )
 
+CAST_SYSTEM = """You are a casting and character designer for AI video generation.
+From the script, extract every individual character who appears on screen (skip crowds
+and incidental background people). For EACH character return:
+- name: one canonical name; group all coreferences ("the barista", "she", "Mia") under it.
+- static_features: permanent visualizable traits ONLY — gender, age range, build, concrete
+  facial features (e.g. "large eyes, a high nose bridge"), hairstyle, skin tone. Do NOT
+  include personality, role, or relationships — image models cannot render them.
+- dynamic_features: wardrobe and carried props with SPECIFIC colors and materials
+  (e.g. "worn red wool coat over a grey hoodie, silver pendant").
+When the script leaves a character's look unspecified, INVENT plausible, story-appropriate
+features — never leave them vague. Make the cast visually DISTINCT from each other: vary
+build, hair, palette so no two members could be confused in a wide shot. Never use a real
+celebrity's likeness or name. Return only the structured object."""
+
 VISUAL_DEV_SYSTEM = (
     """You are a previsual / art director working at the SCENE level.
 For the given scene, produce two things for the SAME scene_order you are told to use:
