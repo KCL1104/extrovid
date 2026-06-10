@@ -22,8 +22,14 @@ from app.schemas.pipeline import (
     Storyboard,
     VisualBrief,
 )
-from app.schemas.api import ReviseRequest
-from app.services import memory_service, planning_service, project_state, revise_service
+from app.schemas.api import ImportSourceRequest, ReviseRequest
+from app.services import (
+    memory_service,
+    planning_service,
+    project_state,
+    revise_service,
+    source_service,
+)
 
 router = APIRouter(
     prefix="/projects/{project_id}", tags=["pipeline"], dependencies=[Depends(get_owned_project)]
@@ -118,6 +124,32 @@ async def generate_storyboard(
         session.add(project)
     await session.commit()
     return storyboard
+
+
+@router.post("/import-source")
+async def import_source(
+    project_id: str, body: ImportSourceRequest, session: AsyncSession = Depends(get_session)
+):
+    """Import a long narrative source (script/novel/transcript): compression ->
+    autoregressive event extraction (resumable) -> scenes + cast. The result lands as
+    the project's script; visual dev and storyboard stages run on it as usual."""
+    if body.replace:
+        await source_service.clear_source(session, project_id)
+    return await source_service.import_source(session, project_id, body.text)
+
+
+@router.get("/source-events")
+async def list_source_events(project_id: str, session: AsyncSession = Depends(get_session)):
+    events = await source_service.list_events(session, project_id)
+    return [
+        {
+            "index": e.index,
+            "description": e.description,
+            "process_chain": e.process_chain,
+            "is_last": e.is_last,
+        }
+        for e in events
+    ]
 
 
 @router.get("/state")

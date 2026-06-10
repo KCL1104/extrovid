@@ -336,6 +336,34 @@ def dispatch_mock(messages, info: AgentInfo) -> ModelResponse:
         args = _cast_dict(text)
     elif "scene_order" in props and "shots" in props:
         args = _scene_storyboard_dict(text)
+    # --- long-source import (checked before the storyboard's bare "scenes") ---
+    elif "process_chain" in props:
+        idx = _marker_int(text, "EVENT_INDEX", 0)
+        args = {
+            "index": idx,
+            "is_last": idx >= 1,  # the mock source always yields exactly 2 events
+            "description": f"Event {idx}: the protagonist faces a turning point.",
+            "process_chain": [
+                "the protagonist notices the problem",
+                "a confrontation forces a choice",
+            ],
+        }
+    elif "event_index" in props:
+        idx = _marker_int(text, "EVENT_INDEX", 0)
+        args = {
+            "event_index": idx,
+            "scenes": [
+                {
+                    "order": 0,
+                    "title": f"Imported scene (event {idx})",
+                    "summary": "A single time and place adapted from the event.",
+                    "beats": [
+                        {"order": 0, "description": "The protagonist acts on the choice."}
+                    ],
+                    "est_duration_sec": 12.0,
+                }
+            ],
+        }
     elif "scenes" in props:
         args = _storyboard_dict(text)
     # --- targeted revision outputs (ReviseAgents) ---

@@ -169,6 +169,13 @@ class GenerateShotRequest(BaseModel):
     num_takes: int = Field(default=1, ge=1, le=4)
 
 
+class ImportSourceRequest(BaseModel):
+    """Long narrative source to import (script / novel chapter / transcript)."""
+
+    text: str = Field(..., min_length=50)
+    replace: bool = Field(default=False, description="Discard previous import progress.")
+
+
 class ReviseRequest(BaseModel):
     """Targeted artifact revision. Targets must be real ids — never invented."""
 
