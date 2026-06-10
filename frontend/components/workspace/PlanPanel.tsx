@@ -2,14 +2,18 @@
 
 import { useRef, useState } from "react";
 import {
+  BookOpen,
   Clapperboard,
   FileText,
   Palette,
   PenLine,
+  Wand2,
   type LucideIcon,
 } from "lucide-react";
 import {
   clarifyBrief,
+  importSource,
+  reviseArtifact,
   runBrief,
   runScript,
   runStoryboard,
@@ -44,12 +48,14 @@ export default function PlanPanel({
   scenes,
   conceptSets,
   onPlanned,
+  onRefresh,
 }: {
   projectId: string;
   planned: boolean;
   scenes: Scene[];
   conceptSets: ConceptSet[];
   onPlanned: () => Promise<void>;
+  onRefresh: () => Promise<void> | void;
 }) {
   const [brief, setBrief] = useState("");
   const [stages, setStages] = useState<Stage[]>(FRESH_STAGES);
@@ -63,6 +69,51 @@ export default function PlanPanel({
   const [picked, setPicked] = useState<Record<string, string>>({});
   const [custom, setCustom] = useState<Record<string, string>>({});
   const lastAnswers = useRef<ClarifyAnswer[]>([]);
+  // long-source import (script / novel / transcript)
+  const [importOpen, setImportOpen] = useState(false);
+  const [sourceText, setSourceText] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importNote, setImportNote] = useState<string | null>(null);
+  // targeted scene revision (staleness cascade instead of full re-plan)
+  const [revisingScene, setRevisingScene] = useState<string | null>(null);
+  const [reviseText, setReviseText] = useState("");
+  const [reviseBusy, setReviseBusy] = useState(false);
+
+  async function doImport() {
+    if (sourceText.trim().length < 50 || importing) return;
+    setImporting(true);
+    setError(null);
+    setImportNote(null);
+    try {
+      const res = await importSource(projectId, sourceText.trim(), planned);
+      setImportNote(
+        `Imported ${res.events} events → ${res.scenes} scenes` +
+          (res.cast.length ? ` · cast: ${res.cast.join(", ")}` : ""),
+      );
+      setSourceText("");
+      await onRefresh();
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  async function doRevise(sceneId: string) {
+    if (!reviseText.trim() || reviseBusy) return;
+    setReviseBusy(true);
+    setError(null);
+    try {
+      await reviseArtifact(projectId, `scene:${sceneId}`, reviseText.trim());
+      setRevisingScene(null);
+      setReviseText("");
+      await onRefresh();
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setReviseBusy(false);
+    }
+  }
 
   const mark = (id: string, status: StageStatus, detail?: string) =>
     setStages((s) => s.map((st) => (st.id === id ? { ...st, status, detail } : st)));
@@ -248,6 +299,52 @@ export default function PlanPanel({
         )}
       </Panel>
 
+      {/* long-source import — script/novel/transcript becomes the project's script */}
+      <Panel className="rise p-5">
+        <button
+          onClick={() => setImportOpen((o) => !o)}
+          aria-expanded={importOpen}
+          className="flex w-full items-center justify-between gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          <span className="flex items-center gap-2">
+            <BookOpen size={14} aria-hidden className="text-accent" />
+            <Eyebrow className="!mb-0">Import a long source</Eyebrow>
+          </span>
+          <span className="font-mono text-xs text-faint">{importOpen ? "−" : "+"}</span>
+        </button>
+        {importOpen && (
+          <div className="mt-3">
+            <p className="text-xs leading-relaxed text-faint">
+              Paste a script, novel chapter, or transcript. It is segmented into dramatic
+              events, adapted into scenes, and the cast is extracted — then visual dev and
+              storyboard run on it as usual.
+            </p>
+            <label className="sr-only" htmlFor="source-input">
+              Long source text
+            </label>
+            <textarea
+              id="source-input"
+              value={sourceText}
+              onChange={(e) => setSourceText(e.target.value)}
+              rows={6}
+              placeholder="paste at least a few paragraphs…"
+              className="mt-2 w-full resize-y rounded-[var(--radius)] border border-border bg-bg-soft px-3 py-2 font-mono text-xs text-fg outline-none placeholder:text-faint focus:border-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            />
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              <Button
+                variant="primary"
+                onClick={doImport}
+                loading={importing}
+                disabled={sourceText.trim().length < 50}
+              >
+                {planned ? "Import (replaces the plan)" : "Import source"}
+              </Button>
+              {importNote && <span className="font-mono text-xs text-ok">{importNote}</span>}
+            </div>
+          </div>
+        )}
+      </Panel>
+
       {/* director Q&A — inline clarifying questions before the staged run */}
       {questions.length > 0 && (
         <Panel className="rise p-5">
@@ -381,8 +478,51 @@ export default function PlanPanel({
                       </span>
                       {scene.title}
                     </h3>
-                    <Pill>{scene.est_duration_sec.toFixed(0)}s</Pill>
+                    <span className="flex items-center gap-2">
+                      {scene.stale && (
+                        <Pill
+                          className="text-run"
+                          // an upstream artifact changed after this scene was planned
+                        >
+                          stale
+                        </Pill>
+                      )}
+                      <Pill>{scene.est_duration_sec.toFixed(0)}s</Pill>
+                      <button
+                        onClick={() => {
+                          setRevisingScene((s) => (s === scene.id ? null : scene.id));
+                          setReviseText("");
+                        }}
+                        aria-expanded={revisingScene === scene.id}
+                        title="Revise just this scene — downstream shots get marked stale, not destroyed"
+                        className="inline-flex min-h-9 items-center gap-1 rounded-[var(--radius)] px-2 font-mono text-[0.7rem] text-faint transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                      >
+                        <Wand2 size={12} aria-hidden /> revise
+                      </button>
+                    </span>
                   </div>
+                  {revisingScene === scene.id && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <label className="sr-only" htmlFor={`revise-${scene.id}`}>
+                        Revision instruction
+                      </label>
+                      <input
+                        id={`revise-${scene.id}`}
+                        value={reviseText}
+                        onChange={(e) => setReviseText(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && doRevise(scene.id)}
+                        placeholder="“make the hook moodier, end on the close-up”"
+                        className="min-w-0 flex-1 rounded-[var(--radius)] border border-border bg-bg-soft px-3 py-2 font-mono text-xs text-fg outline-none placeholder:text-faint focus:border-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                      />
+                      <Button
+                        onClick={() => doRevise(scene.id)}
+                        loading={reviseBusy}
+                        disabled={!reviseText.trim()}
+                      >
+                        Apply
+                      </Button>
+                    </div>
+                  )}
                   <p className="mt-1 text-sm text-muted">{scene.summary}</p>
                   <ul className="mt-3 space-y-1.5">
                     {scene.beats.map((b) => (

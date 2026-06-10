@@ -5,7 +5,10 @@ import Link from "next/link";
 import {
   assembleRoughCut,
   editVersion,
+  generateAllKeyframes,
+  generateAllShots,
   generateImages,
+  generateKeyframe,
   generateShot,
   getConceptSets,
   getProject,
@@ -42,6 +45,8 @@ import ShotBoard from "@/components/workspace/ShotBoard";
 import ShotInspector from "@/components/workspace/ShotInspector";
 import CutPlanner from "@/components/workspace/CutPlanner";
 import QueuePanel from "@/components/workspace/QueuePanel";
+import CastPanel from "@/components/workspace/CastPanel";
+import DirectorPanel from "@/components/workspace/DirectorPanel";
 import {
   aspectClass,
   errMsg,
@@ -51,8 +56,8 @@ import {
   usageChanged,
 } from "@/components/workspace/shared";
 
-type TabId = "plan" | "look" | "shots" | "cut" | "queue";
-const TAB_ORDER: TabId[] = ["plan", "look", "shots", "cut", "queue"];
+type TabId = "plan" | "look" | "cast" | "shots" | "cut" | "queue" | "director";
+const TAB_ORDER: TabId[] = ["plan", "look", "cast", "shots", "cut", "queue", "director"];
 
 export default function Workspace({ projectId }: { projectId: string }) {
   const [project, setProject] = useState<Project | null>(null);
@@ -141,7 +146,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
-      const i = ["1", "2", "3", "4", "5"].indexOf(e.key);
+      const i = ["1", "2", "3", "4", "5", "6", "7"].indexOf(e.key);
       if (i >= 0) setTab(TAB_ORDER[i]);
     };
     window.addEventListener("keydown", onKey);
@@ -229,7 +234,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
 
   async function genShot(
     shotId: string,
-    opts?: { character_id?: string; continue_from_previous?: boolean },
+    opts?: { character_id?: string; continue_from_previous?: boolean; num_takes?: number },
   ) {
     setBusy((b) => ({ ...b, [shotId]: true }));
     setError(null);
@@ -242,6 +247,51 @@ export default function Workspace({ projectId }: { projectId: string }) {
       setError(errMsg(e));
     } finally {
       setBusy((b) => ({ ...b, [shotId]: false }));
+    }
+  }
+
+  const [batchBusy, setBatchBusy] = useState<string | null>(null);
+
+  async function genKeyframe(shotId: string) {
+    setBusy((b) => ({ ...b, [shotId]: true }));
+    setError(null);
+    try {
+      await generateKeyframe(projectId, shotId);
+      setShots(await getStoryboard(projectId));
+      usageChanged();
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setBusy((b) => ({ ...b, [shotId]: false }));
+    }
+  }
+
+  async function genAllKeyframes() {
+    setBatchBusy("keyframes");
+    setError(null);
+    try {
+      await generateAllKeyframes(projectId);
+      setShots(await getStoryboard(projectId));
+      usageChanged();
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setBatchBusy(null);
+    }
+  }
+
+  async function renderAll(chained: boolean) {
+    setBatchBusy(chained ? "render-chained" : "render");
+    setError(null);
+    try {
+      await generateAllShots(projectId, chained);
+      await loadVersions(shots);
+      usageChanged();
+      await loadJobs();
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setBatchBusy(null);
     }
   }
 
@@ -437,6 +487,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
               label: "Look",
               meta: conceptSets.length ? `${generatedSets}/${conceptSets.length}` : undefined,
             },
+            { id: "cast", label: "Cast", meta: characters.length || undefined },
             {
               id: "shots",
               label: "Storyboard",
@@ -449,6 +500,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
               meta: jobs.length || undefined,
               live: runningJobs > 0,
             },
+            { id: "director", label: "Director" },
           ]}
         />
       </div>
@@ -466,6 +518,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
               await loadAll();
               setTab("look");
             }}
+            onRefresh={loadAll}
           />
         )}
         {tab === "look" && (
@@ -478,6 +531,14 @@ export default function Workspace({ projectId }: { projectId: string }) {
             onRefine={refine}
           />
         )}
+        {tab === "cast" && (
+          <CastPanel
+            projectId={projectId}
+            characters={characters}
+            hasScript={scenes.length > 0}
+            onChanged={async () => setCharacters(await listCharacters(projectId))}
+          />
+        )}
         {tab === "shots" && (
           <ShotBoard
             shots={shots}
@@ -486,8 +547,11 @@ export default function Workspace({ projectId }: { projectId: string }) {
             aspect={aspect}
             busy={busy}
             generating={generating}
+            batchBusy={batchBusy}
             onOpen={setInspected}
             onGenerate={(shotId) => genShot(shotId)}
+            onKeyframes={genAllKeyframes}
+            onRenderAll={renderAll}
           />
         )}
         {tab === "cut" && (
@@ -503,6 +567,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
           />
         )}
         {tab === "queue" && <QueuePanel jobs={jobs} onRetry={retry} />}
+        {tab === "director" && <DirectorPanel projectId={projectId} onChanged={loadAll} />}
       </div>
 
       {inspectedShot && (
@@ -520,6 +585,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
           onPick={(versionId) => pickVersion(inspectedShot.id, versionId)}
           onReview={(versionId) => reviewNow(inspectedShot.id, versionId)}
           onUpdate={(patch) => patchShot(inspectedShot.id, patch)}
+          onKeyframe={() => genKeyframe(inspectedShot.id)}
         />
       )}
     </main>

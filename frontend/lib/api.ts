@@ -58,7 +58,15 @@ export type Project = {
 };
 
 export type SceneBeat = { order: number; description: string; narration?: string | null; dialogue?: string | null };
-export type Scene = { id: string; order: number; title: string; summary: string; beats: SceneBeat[]; est_duration_sec: number };
+export type Scene = {
+  id: string;
+  order: number;
+  title: string;
+  summary: string;
+  beats: SceneBeat[];
+  est_duration_sec: number;
+  stale?: boolean; // an upstream artifact changed after this was planned
+};
 
 export type LookFrame = {
   id: string;
@@ -108,6 +116,14 @@ export type Shot = {
   transition: string;
   extra_direction: string | null;
   character_id: string | null;
+  framing?: string | null; // blocking: positions + facing + focus
+  camera_id?: number; // physical camera setup identity
+  first_frame_desc?: string | null; // keyframe contract: planned opening snapshot
+  last_frame_desc?: string | null;
+  motion_desc?: string | null;
+  variation_type?: string;
+  keyframe_frame_id?: string | null; // generated keyframe image (i2v/r2v seed)
+  stale?: boolean; // an upstream artifact changed after this was planned
 };
 
 /** PATCH body for a shot — all fields optional, only set fields are applied. */
@@ -121,6 +137,10 @@ export type ShotUpdate = {
   acceptance_rules?: string[];
   extra_direction?: string | null;
   character_id?: string | null;
+  framing?: string | null;
+  first_frame_desc?: string | null;
+  last_frame_desc?: string | null;
+  motion_desc?: string | null;
 };
 
 export type ReviewSuggestion = { kind: "edit" | "retake"; instruction: string };
@@ -129,6 +149,7 @@ export type Review = {
   score: number;
   notes: string[];
   suggestions: ReviewSuggestion[];
+  continuity_notes?: string[]; // cross-shot drift vs the previous shot's frame
 };
 
 export type ShotVersion = {
@@ -191,8 +212,38 @@ export type PublicVideo = {
   stream_url: string;
 };
 
-export type Character = { id: string; name: string; description: string | null; reference_image_urls: string[] };
+export type Character = {
+  id: string;
+  name: string;
+  description: string | null;
+  reference_image_urls: string[];
+  wardrobe_rules?: string[];
+  portrait_image_urls?: Record<string, string>; // {front, side, back} turnaround
+};
 export type StylePack = { id: string; label: string; image_urls: string[] };
+
+export type ProjectState = {
+  project_status: string | null;
+  target_duration_sec: number | null;
+  has_brief: boolean;
+  scenes: number;
+  stale_scenes: number;
+  concept_sets: number;
+  shots: number;
+  stale_shots: number;
+  shots_with_keyframe: number;
+  shots_with_take: number;
+  shots_with_selected_take: number;
+  jobs_in_flight: number;
+  failed_jobs: number;
+  characters: { name: string; has_portraits: boolean; has_references: boolean }[];
+  style_packs: number;
+  rough_cuts: number;
+};
+
+export type DirectorAction = { tool: string; args: Record<string, unknown>; result_summary: string };
+export type DirectorResponse = { reply: string; actions: DirectorAction[]; state: ProjectState };
+export type DirectorTurn = { id: string; role: "user" | "assistant"; content: string; created_at: string };
 
 // ── clarifying questions (plan stage) ──
 export type ClarifyQuestion = {
@@ -329,12 +380,58 @@ export const generateShot = (
     reference_asset_ids?: string[];
     character_id?: string;
     continue_from_previous?: boolean;
+    num_takes?: number; // best-of-N fan-out (1-4); winner auto-selected by review
   },
 ) =>
   api<ShotVersion>(`/projects/${id}/shots/${shotId}/generate`, {
     method: "POST",
     body: JSON.stringify(opts ?? {}),
   });
+
+// batch rendering — keyframed shots parallelize; chained shots queue on upstream takes
+export const generateScene = (id: string, sceneOrder: number, continueFromPrevious = false) =>
+  api<ShotVersion[]>(`/projects/${id}/scenes/${sceneOrder}/generate-all`, {
+    method: "POST",
+    body: JSON.stringify({ continue_from_previous: continueFromPrevious }),
+  });
+export const generateAllShots = (id: string, continueFromPrevious = false) =>
+  api<ShotVersion[]>(`/projects/${id}/generate-all`, {
+    method: "POST",
+    body: JSON.stringify({ continue_from_previous: continueFromPrevious }),
+  });
+
+// keyframe-first: the shot's opening frame as a refinable image before video spend
+export const generateKeyframe = (id: string, shotId: string) =>
+  api<LookFrame>(`/projects/${id}/shots/${shotId}/keyframe`, { method: "POST" });
+export const generateAllKeyframes = (id: string) =>
+  api<LookFrame[]>(`/projects/${id}/storyboard/keyframes`, { method: "POST" });
+
+// cast pipeline
+export const generateCast = (id: string) =>
+  api<Character[]>(`/projects/${id}/cast/generate`, { method: "POST" });
+export const generatePortraits = (id: string, characterId: string) =>
+  api<Character>(`/projects/${id}/characters/${characterId}/portraits`, { method: "POST" });
+
+// director runtime
+export const getProjectState = (id: string) => api<ProjectState>(`/projects/${id}/state`);
+export const reviseArtifact = (id: string, target: string, instruction: string) =>
+  api<{ target: string; revised: Record<string, unknown> }>(`/projects/${id}/revise`, {
+    method: "POST",
+    body: JSON.stringify({ target, instruction }),
+  });
+export const directorChat = (id: string, message: string) =>
+  api<DirectorResponse>(`/projects/${id}/director`, {
+    method: "POST",
+    body: JSON.stringify({ message }),
+  });
+export const directorTurns = (id: string) => api<DirectorTurn[]>(`/projects/${id}/director/turns`);
+
+// long-source import (script / novel / transcript -> scenes + cast)
+export const importSource = (id: string, text: string, replace = false) =>
+  api<{ events: number; scenes: number; cast: string[]; logline: string }>(
+    `/projects/${id}/import-source`,
+    { method: "POST", body: JSON.stringify({ text, replace }) },
+  );
 export const listVersions = (id: string, shotId: string) =>
   api<ShotVersion[]>(`/projects/${id}/shots/${shotId}/versions`);
 export const selectVersion = (id: string, shotId: string, versionId: string) =>

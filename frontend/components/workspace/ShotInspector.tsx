@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ChangeEvent, type ReactNode } from "react";
-import { ArrowRightToLine, Columns2, RefreshCw, Sparkles, X } from "lucide-react";
+import { ArrowRightToLine, Columns2, ImagePlus, RefreshCw, Sparkles, X } from "lucide-react";
 import type { Character, Shot, ShotTransition, ShotUpdate, ShotVersion } from "@/lib/api";
 import {
   Button,
@@ -42,6 +42,8 @@ function fromShot(s: Shot) {
     emotion: s.performance_spec.emotion ?? "",
     transition: s.transition,
     extra_direction: s.extra_direction ?? "",
+    framing: s.framing ?? "",
+    motion_desc: s.motion_desc ?? "",
   };
 }
 type Draft = ReturnType<typeof fromShot>;
@@ -59,6 +61,7 @@ export default function ShotInspector({
   onPick,
   onReview,
   onUpdate,
+  onKeyframe,
 }: {
   shot: Shot;
   versions: ShotVersion[];
@@ -67,11 +70,16 @@ export default function ShotInspector({
   canContinue: boolean;
   busy: boolean;
   onClose: () => void;
-  onGenerate: (opts?: { character_id?: string; continue_from_previous?: boolean }) => void;
+  onGenerate: (opts?: {
+    character_id?: string;
+    continue_from_previous?: boolean;
+    num_takes?: number;
+  }) => void;
   onEdit: (versionId: string, instruction: string) => void;
   onPick: (versionId: string) => void;
   onReview: (versionId: string) => Promise<void>;
   onUpdate: (patch: ShotUpdate) => Promise<void>;
+  onKeyframe: () => void;
 }) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [compareId, setCompareId] = useState<string | null>(null);
@@ -81,6 +89,7 @@ export default function ShotInspector({
   const [castError, setCastError] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [reviewing, setReviewing] = useState(false);
+  const [numTakes, setNumTakes] = useState(1);
   // editable direction form (per-shot state resets via the parent's `key={shot.id}`)
   const [draft, setDraft] = useState<Draft>(() => fromShot(shot));
   const [saving, setSaving] = useState(false);
@@ -180,6 +189,10 @@ export default function ShotInspector({
   if (draft.transition !== shot.transition) patch.transition = draft.transition as ShotTransition;
   if ((trimmed.extra_direction || null) !== (shot.extra_direction ?? null))
     patch.extra_direction = trimmed.extra_direction || null;
+  if ((draft.framing.trim() || null) !== (shot.framing ?? null))
+    patch.framing = draft.framing.trim() || null;
+  if ((draft.motion_desc.trim() || null) !== (shot.motion_desc ?? null))
+    patch.motion_desc = draft.motion_desc.trim() || null;
 
   const dirty = Object.keys(patch).length > 0;
 
@@ -344,6 +357,21 @@ export default function ShotInspector({
                 </li>
               ))}
             </ul>
+            {(active.review.continuity_notes ?? []).length > 0 && (
+              <div className="mt-2 rounded-[var(--radius)] border border-run/40 bg-run/5 px-2.5 py-2">
+                <p className="font-mono text-[0.65rem] uppercase tracking-widest text-run">
+                  continuity vs previous shot
+                </p>
+                <ul className="mt-1 space-y-1">
+                  {(active.review.continuity_notes ?? []).map((n) => (
+                    <li key={n} className="flex gap-2 text-xs text-muted">
+                      <span aria-hidden className="mt-1.5 size-1 shrink-0 rounded-full bg-run" />
+                      {n}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {active.review.suggestions.length > 0 && (
               <div className="mt-3 flex flex-col gap-1.5">
                 {active.review.suggestions.map((s) => (
@@ -496,6 +524,25 @@ export default function ShotInspector({
                 ))}
               </div>
             </div>
+            <Field label="framing (blocking: positions + facing + focus)" htmlFor="dir-framing">
+              <input
+                id="dir-framing"
+                value={draft.framing}
+                onChange={set("framing")}
+                placeholder="e.g. “Maya on left third, facing right, focus on her hands”"
+                className={inputCls}
+              />
+            </Field>
+            <Field label="motion (between the planned key frames)" htmlFor="dir-motion">
+              <textarea
+                id="dir-motion"
+                rows={2}
+                value={draft.motion_desc}
+                onChange={set("motion_desc")}
+                placeholder="camera terms + appearance-anchored subjects — drives the video prompt"
+                className={cn(inputCls, "resize-none")}
+              />
+            </Field>
             <Field label="director's notes" htmlFor="dir-extra">
               <textarea
                 id="dir-extra"
@@ -617,14 +664,47 @@ export default function ShotInspector({
             {castError && <p className="font-mono text-[0.7rem] text-fail">{castError}</p>}
           </>
         )}
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="primary"
             loading={jobRunning}
-            onClick={() => onGenerate(charId ? { character_id: charId } : undefined)}
+            onClick={() =>
+              onGenerate({
+                ...(charId ? { character_id: charId } : {}),
+                ...(numTakes > 1 ? { num_takes: numTakes } : {}),
+              })
+            }
           >
             {finished.length ? "+ New take" : "Generate shot"}
+            {numTakes > 1 ? ` ×${numTakes}` : ""}
           </Button>
+          <div
+            className="flex items-center gap-1"
+            role="radiogroup"
+            aria-label="Takes per generation (best-of-N, winner auto-selected by review)"
+          >
+            {[1, 2, 3].map((n) => (
+              <button
+                key={n}
+                role="radio"
+                aria-checked={numTakes === n}
+                onClick={() => setNumTakes(n)}
+                title={
+                  n === 1
+                    ? "One take"
+                    : `${n} takes with the same direction — the highest-scoring pass is auto-selected`
+                }
+                className={cn(
+                  "min-h-9 rounded-full border px-2.5 font-mono text-[0.65rem] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                  numTakes === n
+                    ? "border-accent bg-accent/10 text-accent"
+                    : "border-border text-faint hover:text-fg",
+                )}
+              >
+                ×{n}
+              </button>
+            ))}
+          </div>
           {canContinue && (
             <Button
               loading={jobRunning}
@@ -639,6 +719,14 @@ export default function ShotInspector({
               <ArrowRightToLine size={14} aria-hidden /> Continue from #{shot.order}
             </Button>
           )}
+          <Button
+            loading={jobRunning}
+            onClick={onKeyframe}
+            title="Generate the planned opening frame as an image (refinable; anchors the next render)"
+          >
+            <ImagePlus size={14} aria-hidden />
+            {shot.keyframe_frame_id ? "Re-keyframe" : "Keyframe"}
+          </Button>
         </div>
         {active && (
           <div className="flex items-center gap-2">

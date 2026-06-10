@@ -1,8 +1,8 @@
 "use client";
 
-import { Play } from "lucide-react";
+import { Film, ImageIcon, Link2, Play } from "lucide-react";
 import type { Character, Shot, ShotVersion } from "@/lib/api";
-import { Button, EmptyState, Eyebrow, Panel, ScoreBadge, Spinner, StatusBadge, cn } from "@/components/ui";
+import { Button, EmptyState, Eyebrow, Panel, Pill, ScoreBadge, Spinner, StatusBadge, cn } from "@/components/ui";
 import {
   aspectClass,
   cameraLine,
@@ -18,8 +18,11 @@ export default function ShotBoard({
   aspect,
   busy,
   generating,
+  batchBusy,
   onOpen,
   onGenerate,
+  onKeyframes,
+  onRenderAll,
 }: {
   shots: Shot[];
   versions: Record<string, ShotVersion[]>;
@@ -27,8 +30,11 @@ export default function ShotBoard({
   aspect: string;
   busy: Record<string, boolean>;
   generating: string[];
+  batchBusy: string | null;
   onOpen: (shotId: string) => void;
   onGenerate: (shotId: string) => void;
+  onKeyframes: () => void;
+  onRenderAll: (chained: boolean) => void;
 }) {
   if (shots.length === 0) {
     return (
@@ -38,8 +44,41 @@ export default function ShotBoard({
       />
     );
   }
+  const withKeyframe = shots.filter((s) => s.keyframe_frame_id).length;
+  const staleCount = shots.filter((s) => s.stale).length;
   return (
     <div>
+      {/* batch toolbar — keyframes are image-priced; chained render queues on upstream takes */}
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <Button
+          onClick={onKeyframes}
+          loading={batchBusy === "keyframes"}
+          disabled={!!batchBusy || withKeyframe === shots.length}
+          title="Generate every missing shot keyframe as an image — approve composition before spending video budget"
+        >
+          <ImageIcon size={14} aria-hidden />
+          Keyframes {withKeyframe}/{shots.length}
+        </Button>
+        <Button
+          onClick={() => onRenderAll(false)}
+          loading={batchBusy === "render"}
+          disabled={!!batchBusy}
+          title="Render every shot — keyframed shots submit in parallel"
+        >
+          <Film size={14} aria-hidden /> Render all
+        </Button>
+        <Button
+          onClick={() => onRenderAll(true)}
+          loading={batchBusy === "render-chained"}
+          disabled={!!batchBusy}
+          title="Render in a continuation chain — each shot seeds from the previous take's last frame"
+        >
+          <Link2 size={14} aria-hidden /> Render chained
+        </Button>
+        {staleCount > 0 && (
+          <Pill className="text-run">{staleCount} stale — replanning recommended</Pill>
+        )}
+      </div>
       {characters.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <Eyebrow>Cast</Eyebrow>
@@ -160,6 +199,26 @@ function ShotCard({
         {take?.score != null && (
           <span className="absolute bottom-2 left-2 rounded bg-black/60 px-1.5 py-0.5 backdrop-blur">
             <ScoreBadge score={take.score} verdict={take.review?.verdict} />
+          </span>
+        )}
+        {(shot.stale || shot.keyframe_frame_id) && (
+          <span className="absolute left-2 top-9 flex flex-col items-start gap-1">
+            {shot.stale && (
+              <span
+                title="An upstream artifact changed after this shot was planned"
+                className="rounded bg-black/60 px-1.5 py-0.5 font-mono text-[0.6rem] text-run backdrop-blur"
+              >
+                stale
+              </span>
+            )}
+            {shot.keyframe_frame_id && (
+              <span
+                title="Has a planned keyframe — generation anchors on it"
+                className="rounded bg-black/60 px-1.5 py-0.5 font-mono text-[0.6rem] text-ok backdrop-blur"
+              >
+                KF
+              </span>
+            )}
           </span>
         )}
         {finishedCount > 1 && (

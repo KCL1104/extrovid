@@ -37,6 +37,16 @@ async def _recent_turns(session: AsyncSession, project_id: str) -> list[Director
     return list(reversed(rows))
 
 
+@router.get("/director/turns")
+async def director_history(project_id: str, session: AsyncSession = Depends(get_session)):
+    """The chat history (oldest first) so the panel survives reloads."""
+    turns = await _recent_turns(session, project_id)
+    return [
+        {"id": t.id, "role": t.role, "content": t.content, "created_at": t.created_at.isoformat()}
+        for t in turns
+    ]
+
+
 @router.post("/director", response_model=DirectorResponse)
 async def director_chat(
     project_id: str,
