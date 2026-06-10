@@ -22,6 +22,8 @@ class VisualConceptSet(SQLModel, table=True):
     # Persisted VisualBrief dump (style/mood/palette/lighting/camera/negative rules) —
     # the art direction that feeds storyboard planning and final video prompts.
     visual_brief: dict | None = Field(default=None, sa_column=Column(JSON))
+    # set when an upstream artifact changed after this set was planned
+    stale: bool = Field(default=False)
 
 
 class LookFrame(SQLModel, table=True):

@@ -133,6 +133,7 @@ class SceneRead(BaseModel):
     summary: str
     beats: list
     est_duration_sec: float
+    stale: bool = False  # an upstream artifact changed after this was planned
 
 
 class LookFrameRead(BaseModel):
@@ -166,6 +167,25 @@ class GenerateShotRequest(BaseModel):
     # best-of-N fan-out: submit N takes with the same direction; once all land, the
     # highest-scoring passing take is auto-selected (manual selection always wins)
     num_takes: int = Field(default=1, ge=1, le=4)
+
+
+class ReviseRequest(BaseModel):
+    """Targeted artifact revision. Targets must be real ids — never invented."""
+
+    target: str = Field(
+        ..., min_length=1, description="'scene:{id}' | 'visual_brief:{scene_id}' | 'shot:{id}'"
+    )
+    instruction: str = Field(..., min_length=1)
+
+
+class DirectorRequest(BaseModel):
+    message: str = Field(..., min_length=1)
+
+
+class DirectorResponse(BaseModel):
+    reply: str
+    actions: list[dict] = []  # tool calls the director made this turn
+    state: dict = {}  # post-turn project snapshot
 
 
 class BatchGenerateRequest(BaseModel):
@@ -302,6 +322,7 @@ class ShotRead(BaseModel):
     motion_desc: str | None = None
     variation_type: str = "small"
     keyframe_frame_id: str | None = None
+    stale: bool = False  # an upstream artifact changed after this was planned
 
 
 class ShotUpdate(BaseModel):

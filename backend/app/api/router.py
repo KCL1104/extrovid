@@ -9,6 +9,7 @@ from fastapi import APIRouter
 from app.api import (
     auth,
     cast,
+    director,
     gallery,
     generation,
     images,
@@ -29,6 +30,7 @@ api_router.include_router(generation.router)
 api_router.include_router(roughcut.router)
 api_router.include_router(memory.router)
 api_router.include_router(cast.router)
+api_router.include_router(director.router)
 api_router.include_router(usage.router)
 api_router.include_router(auth.router)  # gated: /me, /rotate-token, /logout
 api_router.include_router(gallery.router)  # gated: publish / unpublish a rough cut

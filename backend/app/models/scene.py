@@ -14,3 +14,5 @@ class Scene(SQLModel, table=True):
     summary: str
     beats: list = Field(default_factory=list, sa_column=Column(JSON))  # list[SceneBeat] dumps
     est_duration_sec: float = 0.0
+    # set when an upstream artifact changed after this row was planned
+    stale: bool = Field(default=False)

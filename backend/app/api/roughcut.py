@@ -7,7 +7,7 @@ from app.api.deps import get_owned_project
 from app.core.db import get_session
 from app.models.timeline import TimelineSequence
 from app.schemas.api import AssembleRequest, RoughCutRead
-from app.services import gallery_service, rough_cut_service
+from app.services import gallery_service, project_state, rough_cut_service
 from app.services.asset_service import asset_url
 
 router = APIRouter(
@@ -38,6 +38,14 @@ async def assemble(
     session: AsyncSession = Depends(get_session),
 ):
     opts = body or AssembleRequest()
+    state = await project_state.snapshot(session, project_id)
+    missing = project_state.missing_for(state, "rough_cut")
+    if missing:
+        # report missing dependencies instead of pretending assembly started
+        raise HTTPException(
+            status_code=422,
+            detail={"missing": missing, "hint": "generate takes before assembling a cut"},
+        )
     try:
         seq = await rough_cut_service.assemble_rough_cut(
             session,

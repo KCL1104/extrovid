@@ -11,7 +11,9 @@ async def _project_with_shots(client) -> tuple[str, list[str]]:
 async def test_rough_cut_requires_generated_videos(client):
     pid, _ = await _project_with_shots(client)
     r = await client.post(f"/api/projects/{pid}/rough-cut")
-    assert r.status_code == 400
+    # precise dependency report instead of a generic 400
+    assert r.status_code == 422
+    assert "finished takes" in str(r.json()["detail"]["missing"])
 
 
 async def test_assemble_rough_cut(client):

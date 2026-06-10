@@ -338,6 +338,27 @@ def dispatch_mock(messages, info: AgentInfo) -> ModelResponse:
         args = _scene_storyboard_dict(text)
     elif "scenes" in props:
         args = _storyboard_dict(text)
+    # --- targeted revision outputs (ReviseAgents) ---
+    elif "est_duration_sec" in props and "beats" in props:
+        order = _marker_int(text, "SCENE_ORDER", 0)
+        args = {
+            "order": order,
+            "title": "Hook (revised)",
+            "summary": "Open on the everyday problem — revised per the instruction.",
+            "beats": [{"order": 0, "description": "Revised beat: establish the new tension."}],
+            "est_duration_sec": 10.0,
+        }
+    elif "visual_style" in props and "palette" in props:
+        order = _marker_int(text, "SCENE_ORDER", 0)
+        args = {
+            **_scene_visual_plan_dict(f"SCENE_ORDER={order}")["visual_brief"],
+            "mood": "revised mood",
+        }
+    elif "camera_spec" in props and "purpose" in props:
+        order = _marker_int(text, "SCENE_ORDER", 0)
+        shot = _mock_shot(0, order, 4.0)
+        shot["purpose"] = "advance the story beat (revised)"
+        args = shot
     else:  # pragma: no cover - defensive
         raise ValueError(f"mock has no canned data for output schema with props {sorted(props)}")
 

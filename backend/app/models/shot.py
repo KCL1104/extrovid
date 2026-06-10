@@ -37,3 +37,5 @@ class Shot(SQLModel, table=True):
     variation_type: str = Field(default="small")  # small | medium | large
     # the generated keyframe image (a LookFrame) used as this shot's i2v/r2v seed
     keyframe_frame_id: str | None = Field(default=None, foreign_key="lookframe.id")
+    # set when an upstream artifact (scene/brief) changed after this shot was planned
+    stale: bool = Field(default=False)

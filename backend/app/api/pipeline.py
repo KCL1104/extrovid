@@ -4,7 +4,7 @@ Each per-stage endpoint generates and persists its slice (replace semantics). ``
 the whole pipeline and persists everything atomically — this is the Phase-0 exit endpoint.
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,7 +22,8 @@ from app.schemas.pipeline import (
     Storyboard,
     VisualBrief,
 )
-from app.services import memory_service, planning_service
+from app.schemas.api import ReviseRequest
+from app.services import memory_service, planning_service, project_state, revise_service
 
 router = APIRouter(
     prefix="/projects/{project_id}", tags=["pipeline"], dependencies=[Depends(get_owned_project)]
@@ -41,6 +42,8 @@ async def generate_brief(
 ):
     brief = await orchestrator.run_brief(body.raw_prompt, body.clarifications)
     await planning_service.replace_brief(session, project_id, brief, body.clarifications)
+    # a changed brief invalidates everything planned against the old one
+    await revise_service.mark_project_stale(session, project_id)
     # the parsed brief drives the project's framing (mirrors /run's persist_pipeline)
     project = await session.get(Project, project_id)
     if project:
@@ -115,6 +118,27 @@ async def generate_storyboard(
         session.add(project)
     await session.commit()
     return storyboard
+
+
+@router.get("/state")
+async def project_snapshot(project_id: str, session: AsyncSession = Depends(get_session)):
+    """Deterministic project checklist — what exists, what's missing, what's stale."""
+    return await project_state.snapshot(session, project_id)
+
+
+@router.post("/revise")
+async def revise_artifact(
+    project_id: str, body: ReviseRequest, session: AsyncSession = Depends(get_session)
+):
+    """Targeted revision of ONE artifact ('scene:{id}' | 'visual_brief:{scene_id}' |
+    'shot:{id}') with a downstream staleness cascade — no whole-stage regeneration."""
+    try:
+        revised = await revise_service.revise(session, project_id, body.target, body.instruction)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from None
+    return {"target": body.target, "revised": revised.model_dump(mode="json")}
 
 
 @router.post("/run", response_model=PipelineResult)
