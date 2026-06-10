@@ -147,10 +147,9 @@ async def _previous_shot_take(
 async def _continuation_frame_asset_id(
     session: AsyncSession, project_id: str, shot: Shot
 ) -> tuple[str, str]:
-    """Extract the previous take's last frame as a stored image asset (the i2v seed).
+    """Extract the previous take's last frame as a stored image asset (the i2v/r2v seed).
 
-    Returns (asset_id, routing_note). Raises LookupError when there is nothing to
-    continue from.
+    Returns (asset_id, note). Raises LookupError when there is nothing to continue from.
     """
     found = await _previous_shot_take(session, project_id, shot)
     if found is None:
@@ -178,7 +177,7 @@ async def _continuation_frame_asset_id(
         source_model="ffmpeg:last-frame",
         use_mock=settings.use_mock_video,
     )
-    return asset.id, f"i2v — continues from shot #{prev_shot.order}'s last frame"
+    return asset.id, f"continues from shot #{prev_shot.order}'s last frame"
 
 
 async def _ingest_video_bytes(
@@ -248,27 +247,32 @@ async def submit_shot(
     )
 
     # --- routing: decide the input mode and record why ---
-    routing_note: str | None = None
-    if continue_from_previous and not reference_urls and first_frame_asset_id is None:
-        first_frame_asset_id, routing_note = await _continuation_frame_asset_id(
+    continuation_note: str | None = None
+    if continue_from_previous and first_frame_asset_id is None:
+        # the seed composes with references too: r2v accepts a first_frame alongside refs
+        first_frame_asset_id, continuation_note = await _continuation_frame_asset_id(
             session, project_id, shot
         )
-    if first_frame_asset_id is None and not reference_urls:
-        if shot.preferred_model == PreferredModel.I2V.value:
-            first_frame_asset_id = await _auto_first_frame_asset_id(session, project_id)
-            if first_frame_asset_id:
-                routing_note = "i2v — first-frame control from the promoted look frame"
-    if routing_note is None:
-        if reference_urls:
-            character = await session.get(CharacterProfile, character_id) if character_id else None
-            who = f" ({character.name})" if character else ""
-            routing_note = (
-                f"r2v — {len(reference_urls)} reference image(s){who} lock subject consistency"
-            )
-        elif first_frame_asset_id:
-            routing_note = "i2v — first-frame control"
-        else:
-            routing_note = "t2v — text-to-video draft (no references in project memory yet)"
+    if (
+        first_frame_asset_id is None
+        and not reference_urls
+        and shot.preferred_model == PreferredModel.I2V.value
+    ):
+        first_frame_asset_id = await _auto_first_frame_asset_id(session, project_id)
+        if first_frame_asset_id:
+            continuation_note = "first-frame control from the promoted look frame"
+    if reference_urls:
+        character = await session.get(CharacterProfile, character_id) if character_id else None
+        who = f" ({character.name})" if character else ""
+        routing_note = (
+            f"r2v — {len(reference_urls)} reference image(s){who} lock subject consistency"
+        )
+        if continuation_note:
+            routing_note += f"; {continuation_note}"
+    elif first_frame_asset_id:
+        routing_note = f"i2v — {continuation_note or 'first-frame control'}"
+    else:
+        routing_note = "t2v — text-to-video draft (no references in project memory yet)"
 
     first_frame_url = (
         await asset_url(session, first_frame_asset_id) if first_frame_asset_id else None
