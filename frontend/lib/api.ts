@@ -93,6 +93,7 @@ export type ConceptSet = {
 
 export type CameraSpec = { shot_size: string; angle: string; movement: string; lens?: string | null };
 export type PerformanceSpec = { subject: string; action: string; emotion?: string | null };
+export type ShotTransition = "cut" | "dissolve" | "fade" | "match_cut" | "none";
 export type Shot = {
   id: string;
   order: number;
@@ -105,6 +106,21 @@ export type Shot = {
   preferred_model: string;
   acceptance_rules: string[];
   transition: string;
+  extra_direction: string | null;
+  character_id: string | null;
+};
+
+/** PATCH body for a shot — all fields optional, only set fields are applied. */
+export type ShotUpdate = {
+  purpose?: string;
+  beat?: string;
+  duration_sec?: number; // 0 < x <= 15
+  camera_spec?: CameraSpec;
+  performance_spec?: PerformanceSpec;
+  transition?: ShotTransition;
+  acceptance_rules?: string[];
+  extra_direction?: string | null;
+  character_id?: string | null;
 };
 
 export type ReviewSuggestion = { kind: "edit" | "retake"; instruction: string };
@@ -178,6 +194,21 @@ export type PublicVideo = {
 export type Character = { id: string; name: string; description: string | null; reference_image_urls: string[] };
 export type StylePack = { id: string; label: string; image_urls: string[] };
 
+// ── clarifying questions (plan stage) ──
+export type ClarifyQuestion = {
+  id: string;
+  question: string;
+  why: string;
+  options: string[]; // 2-4 concrete suggestions
+  allow_custom: boolean;
+};
+export type ClarifyResult = {
+  needs_clarification: boolean;
+  questions: ClarifyQuestion[]; // max 4, empty when not needed
+  prompt_assessment: string; // one line: what is clear / what is missing
+};
+export type ClarifyAnswer = { question_id: string; question: string; answer: string };
+
 export type BriefInput = {
   raw_prompt: string;
   product?: string | null;
@@ -235,12 +266,25 @@ export const createProject = (
 export const getProject = (id: string) => api<Project>(`/projects/${id}`);
 export const deleteProject = (id: string) => api<void>(`/projects/${id}`, { method: "DELETE" });
 
-export const runPipeline = (id: string, raw_prompt: string) =>
-  api<PipelineResult>(`/projects/${id}/run`, { method: "POST", body: JSON.stringify({ raw_prompt }) });
+export const runPipeline = (id: string, raw_prompt: string, clarifications: ClarifyAnswer[] = []) =>
+  api<PipelineResult>(`/projects/${id}/run`, {
+    method: "POST",
+    body: JSON.stringify(clarifications.length ? { raw_prompt, clarifications } : { raw_prompt }),
+  });
+
+// stateless clarify pass — director Q&A before planning; nothing is persisted
+export const clarifyBrief = (id: string, raw_prompt: string) =>
+  api<ClarifyResult>(`/projects/${id}/clarify`, {
+    method: "POST",
+    body: JSON.stringify({ raw_prompt }),
+  });
 
 // per-stage planning (staged run console shows live progress per stage)
-export const runBrief = (id: string, raw_prompt: string) =>
-  api<BriefInput>(`/projects/${id}/brief`, { method: "POST", body: JSON.stringify({ raw_prompt }) });
+export const runBrief = (id: string, raw_prompt: string, clarifications: ClarifyAnswer[] = []) =>
+  api<BriefInput>(`/projects/${id}/brief`, {
+    method: "POST",
+    body: JSON.stringify(clarifications.length ? { raw_prompt, clarifications } : { raw_prompt }),
+  });
 export const runScript = (id: string, brief: BriefInput) =>
   api<ScriptDraft>(`/projects/${id}/script`, { method: "POST", body: JSON.stringify(brief) });
 export const runVisualBriefs = (id: string, script: ScriptDraft) =>
@@ -259,6 +303,8 @@ export const runStoryboard = (
 export const getScript = (id: string) => api<Scene[]>(`/projects/${id}/script`);
 export const getConceptSets = (id: string) => api<ConceptSet[]>(`/projects/${id}/concept-sets`);
 export const getStoryboard = (id: string) => api<Shot[]>(`/projects/${id}/storyboard`);
+export const updateShot = (id: string, shotId: string, patch: ShotUpdate) =>
+  api<Shot>(`/projects/${id}/shots/${shotId}`, { method: "PATCH", body: JSON.stringify(patch) });
 
 export const generateImages = (id: string, csId: string, limit?: number) =>
   api<LookFrame[]>(`/projects/${id}/concept-sets/${csId}/generate-images${limit ? `?limit=${limit}` : ""}`, {

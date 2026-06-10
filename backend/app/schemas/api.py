@@ -2,10 +2,16 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.models.enums import AspectRatio, ProjectStatus, PromotedAs
-from app.schemas.pipeline import ScriptDraft, VisualBrief, VisualConceptSetSpec
+from app.models.enums import AspectRatio, ProjectStatus, PromotedAs, ShotTransition
+from app.schemas.pipeline import (
+    CameraSpec,
+    PerformanceSpec,
+    ScriptDraft,
+    VisualBrief,
+    VisualConceptSetSpec,
+)
 
 
 class ProjectCreate(BaseModel):
@@ -72,8 +78,36 @@ class ProjectRead(BaseModel):
     stats: ProjectStats | None = None
 
 
+# --- clarifying questions (plan stage; stateless) ---
+
+
+class ClarifyQuestion(BaseModel):
+    """One multiple-choice director question about a genuinely ambiguous aspect."""
+
+    id: str = Field(..., min_length=1)
+    question: str = Field(..., min_length=1)
+    why: str = Field(..., min_length=1, description="What answering this unlocks.")
+    options: list[str] = Field(..., min_length=2, max_length=4)
+    allow_custom: bool = True
+
+
+class ClarifyResult(BaseModel):
+    needs_clarification: bool
+    questions: list[ClarifyQuestion] = Field(default_factory=list, max_length=4)
+    prompt_assessment: str = Field(
+        ..., min_length=1, description="One line: what is clear / what is missing."
+    )
+
+
+class ClarifyAnswer(BaseModel):
+    question_id: str
+    question: str
+    answer: str  # empty/whitespace answers are skipped when folding into the brief
+
+
 class RunRequest(BaseModel):
     raw_prompt: str = Field(..., min_length=1)
+    clarifications: list[ClarifyAnswer] = Field(default_factory=list)
 
 
 class VisualPlansResponse(BaseModel):
@@ -248,3 +282,29 @@ class ShotRead(BaseModel):
     acceptance_rules: list
     reference_look_frame_ids: list
     transition: str
+    extra_direction: str | None = None
+    character_id: str | None = None
+
+
+class ShotUpdate(BaseModel):
+    """Partial shot edit (PATCH); only fields present in the request are applied."""
+
+    purpose: str | None = Field(default=None, min_length=1)
+    beat: str | None = Field(default=None, min_length=1)
+    duration_sec: float | None = Field(default=None, gt=0, le=15)
+    camera_spec: CameraSpec | None = None
+    performance_spec: PerformanceSpec | None = None
+    transition: ShotTransition | None = None
+    acceptance_rules: list[str] | None = Field(default=None, min_length=1)
+    extra_direction: str | None = None  # director's notes, fed verbatim into the prompt
+    character_id: str | None = None  # cast lock: CharacterProfile of the same project
+
+    @model_validator(mode="after")
+    def _reject_explicit_nulls(self) -> "ShotUpdate":
+        """Optional-to-omit, not optional-to-null: an explicit null on a non-nullable
+        shot column would persist and break every later storyboard read."""
+        nullable = {"extra_direction", "character_id"}
+        for field in self.model_fields_set - nullable:
+            if getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be null")
+        return self

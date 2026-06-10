@@ -22,6 +22,7 @@ import {
   reviewVersion,
   selectVersion,
   unpublishCut,
+  updateShot,
   type Character,
   type ClipSpec,
   type ConceptSet,
@@ -30,6 +31,7 @@ import {
   type RoughCut,
   type Scene,
   type Shot,
+  type ShotUpdate,
   type ShotVersion,
 } from "@/lib/api";
 import { Alert, Button, Eyebrow, Pill, Tabs } from "@/components/ui";
@@ -256,6 +258,17 @@ export default function Workspace({ projectId }: { projectId: string }) {
       setError(errMsg(e));
     } finally {
       setBusy((b) => ({ ...b, [shotId]: false }));
+    }
+  }
+
+  async function patchShot(shotId: string, patch: ShotUpdate) {
+    setError(null);
+    try {
+      await updateShot(projectId, shotId, patch);
+      setShots(await getStoryboard(projectId));
+    } catch (e) {
+      setError(errMsg(e));
+      throw e; // the inspector shows the failure inline and keeps the dirty draft
     }
   }
 
@@ -506,6 +519,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
           onEdit={(versionId, instruction) => genEdit(inspectedShot.id, versionId, instruction)}
           onPick={(versionId) => pickVersion(inspectedShot.id, versionId)}
           onReview={(versionId) => reviewNow(inspectedShot.id, versionId)}
+          onUpdate={(patch) => patchShot(inspectedShot.id, patch)}
         />
       )}
     </main>

@@ -23,3 +23,6 @@ class Shot(SQLModel, table=True):
     acceptance_rules: list = Field(default_factory=list, sa_column=Column(JSON))
     reference_look_frame_ids: list = Field(default_factory=list, sa_column=Column(JSON))
     transition: str = Field(default=ShotTransition.CUT.value)
+    # per-shot detailed direction (PATCH /shots/{id}):
+    extra_direction: str | None = None  # free-text director notes -> generation prompt verbatim
+    character_id: str | None = Field(default=None, foreign_key="characterprofile.id")

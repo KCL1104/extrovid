@@ -14,7 +14,7 @@ from app.models.concept import VisualConceptSet
 from app.models.enums import ProjectStatus
 from app.models.project import Project
 from app.pipeline import orchestrator
-from app.schemas.api import RunRequest, StoryboardRequest, VisualPlansResponse
+from app.schemas.api import ClarifyResult, RunRequest, StoryboardRequest, VisualPlansResponse
 from app.schemas.pipeline import (
     BriefInput,
     PipelineResult,
@@ -29,11 +29,17 @@ router = APIRouter(
 )
 
 
+@router.post("/clarify", response_model=ClarifyResult)
+async def clarify_brief(project_id: str, body: RunRequest):
+    """Assess the raw idea and propose director Q&A. Stateless — nothing is persisted."""
+    return await orchestrator.run_clarify(body.raw_prompt)
+
+
 @router.post("/brief", response_model=BriefInput)
 async def generate_brief(
     project_id: str, body: RunRequest, session: AsyncSession = Depends(get_session)
 ):
-    brief = await orchestrator.run_brief(body.raw_prompt)
+    brief = await orchestrator.run_brief(body.raw_prompt, body.clarifications)
     await planning_service.replace_brief(session, project_id, brief)
     # the parsed brief drives the project's framing (mirrors /run's persist_pipeline)
     project = await session.get(Project, project_id)
@@ -112,6 +118,8 @@ async def run_full_pipeline(
     project: Project = Depends(get_owned_project),
     session: AsyncSession = Depends(get_session),
 ):
-    result = await orchestrator.run_pipeline(BriefInput(raw_prompt=body.raw_prompt))
+    result = await orchestrator.run_pipeline(
+        BriefInput(raw_prompt=body.raw_prompt), clarifications=body.clarifications
+    )
     await planning_service.persist_pipeline(session, project, result)
     return result

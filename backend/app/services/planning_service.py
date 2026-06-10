@@ -13,6 +13,7 @@ from app.models.enums import ProjectStatus
 from app.models.project import Brief, Project
 from app.models.scene import Scene
 from app.models.shot import Shot
+from app.schemas.api import ShotUpdate
 from app.schemas.pipeline import (
     BriefInput,
     PipelineResult,
@@ -190,6 +191,16 @@ async def replace_shots(
 ) -> None:
     await _clear_shots(session, project_id)
     await _insert_shots(session, project_id, storyboard, scene_id_by_order)
+
+
+async def update_shot(session: AsyncSession, shot: Shot, patch: ShotUpdate) -> Shot:
+    """Apply a partial shot edit. Only fields the caller actually sent are touched;
+    nested specs/enums are dumped to plain JSON values for the JSON/str columns."""
+    for field, value in patch.model_dump(exclude_unset=True, mode="json").items():
+        setattr(shot, field, value)
+    session.add(shot)
+    await session.flush()
+    return shot
 
 
 # --------------------------------------------------------------------------- #

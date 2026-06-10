@@ -235,6 +235,10 @@ async def submit_shot(
     ratio = _ratio_for(project.aspect_ratio if project else "")
     duration = max(2, min(15, round(shot.duration_sec)))
 
+    if character_id is None:
+        # cast lock: the shot's persisted character is the default; an explicit request wins
+        character_id = shot.character_id
+
     gen_params = {
         "first_frame_asset_id": first_frame_asset_id,
         "reference_asset_ids": reference_asset_ids,

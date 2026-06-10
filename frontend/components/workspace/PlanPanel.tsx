@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   Clapperboard,
   FileText,
@@ -9,10 +9,14 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import {
+  clarifyBrief,
   runBrief,
   runScript,
   runStoryboard,
   runVisualBriefs,
+  type ClarifyAnswer,
+  type ClarifyQuestion,
+  type ClarifyResult,
   type ConceptSet,
   type Scene,
 } from "@/lib/api";
@@ -52,12 +56,20 @@ export default function PlanPanel({
   const [running, setRunning] = useState(false);
   const [confirmReplace, setConfirmReplace] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // director Q&A (clarifying questions before the staged run)
+  const [checking, setChecking] = useState(false);
+  const [assessment, setAssessment] = useState<string | null>(null);
+  const [questions, setQuestions] = useState<ClarifyQuestion[]>([]);
+  const [picked, setPicked] = useState<Record<string, string>>({});
+  const [custom, setCustom] = useState<Record<string, string>>({});
+  const lastAnswers = useRef<ClarifyAnswer[]>([]);
 
   const mark = (id: string, status: StageStatus, detail?: string) =>
     setStages((s) => s.map((st) => (st.id === id ? { ...st, status, detail } : st)));
 
-  async function run() {
+  async function run(clarifications: ClarifyAnswer[]) {
     if (running) return;
+    lastAnswers.current = clarifications;
     setConfirmReplace(false);
     setRunning(true);
     setError(null);
@@ -65,7 +77,7 @@ export default function PlanPanel({
     let current = "brief";
     try {
       mark("brief", "running");
-      const b = await runBrief(projectId, brief.trim());
+      const b = await runBrief(projectId, brief.trim(), clarifications);
       mark("brief", "done", `${b.target_duration_sec}s · ${b.aspect_ratio} · ${b.platform}`);
 
       current = "script";
@@ -92,10 +104,74 @@ export default function PlanPanel({
     }
   }
 
+  /** Ask the director's assistant whether the brief needs clarifying before planning. */
+  async function begin() {
+    if (!brief.trim() || running || checking) return;
+    setConfirmReplace(false);
+    setChecking(true);
+    setError(null);
+    setQuestions([]);
+    setPicked({});
+    setCustom({});
+    setAssessment(null);
+    let result: ClarifyResult | null = null;
+    try {
+      result = await clarifyBrief(projectId, brief.trim());
+    } catch {
+      // the clarify pass is advisory — fall through and plan directly
+    }
+    setChecking(false);
+    if (result?.prompt_assessment) setAssessment(result.prompt_assessment);
+    if (result?.needs_clarification && result.questions.length > 0) {
+      setQuestions(result.questions);
+      return; // wait for the user to answer or skip
+    }
+    await run([]);
+  }
+
   function start() {
-    if (!brief.trim() || running) return;
+    if (!brief.trim() || running || checking) return;
     if (planned) setConfirmReplace(true);
-    else run();
+    else begin();
+  }
+
+  const answerFor = (q: ClarifyQuestion) => (picked[q.id] ?? custom[q.id] ?? "").trim();
+  const answered = questions.filter((q) => answerFor(q)).length;
+
+  const collectAnswers = (): ClarifyAnswer[] =>
+    questions
+      .map((q) => ({ question_id: q.id, question: q.question, answer: answerFor(q) }))
+      .filter((a) => a.answer.length > 0);
+
+  function pickOption(qid: string, option: string) {
+    setPicked((p) => {
+      const next = { ...p };
+      if (next[qid] === option) delete next[qid]; // toggle off → unanswered
+      else next[qid] = option;
+      return next;
+    });
+    setCustom((c) => ({ ...c, [qid]: "" }));
+  }
+
+  function typeCustom(qid: string, value: string) {
+    setCustom((c) => ({ ...c, [qid]: value }));
+    setPicked((p) => {
+      if (!(qid in p)) return p;
+      const next = { ...p };
+      delete next[qid];
+      return next;
+    });
+  }
+
+  function continueRun() {
+    const answers = collectAnswers();
+    setQuestions([]);
+    void run(answers);
+  }
+
+  function skipQuestions() {
+    setQuestions([]);
+    void run([]);
   }
 
   const anyStage = stages.some((s) => s.status !== "idle");
@@ -121,7 +197,7 @@ export default function PlanPanel({
             <span className="text-sm text-fail">
               Re-planning replaces the current script, looks, storyboard, and generated takes.
             </span>
-            <Button variant="danger" onClick={run}>
+            <Button variant="danger" onClick={begin}>
               Replace plan
             </Button>
             <Button variant="ghost" onClick={() => setConfirmReplace(false)}>
@@ -130,15 +206,29 @@ export default function PlanPanel({
           </div>
         ) : (
           <div className="mt-3 flex flex-wrap items-center gap-3">
-            <Button variant="primary" onClick={start} loading={running} disabled={!brief.trim()}>
+            <Button
+              variant="primary"
+              onClick={start}
+              loading={running || checking}
+              disabled={!brief.trim()}
+            >
               {planned ? "Re-plan production" : "Plan production"}
             </Button>
-            {!running && (
-              <span className="text-xs text-faint">
-                Brief → script → look development → storyboard, staged below as it runs.
-              </span>
+            {checking ? (
+              <span className="text-xs text-faint">Checking your brief for open questions…</span>
+            ) : (
+              !running && (
+                <span className="text-xs text-faint">
+                  Brief → script → look development → storyboard, staged below as it runs.
+                </span>
+              )
             )}
           </div>
+        )}
+        {assessment && (
+          <p className="mt-3 border-t border-border pt-2.5 font-mono text-xs text-faint">
+            {assessment}
+          </p>
         )}
         {!planned && !brief.trim() && !anyStage && (
           <div className="mt-4">
@@ -157,6 +247,71 @@ export default function PlanPanel({
           </div>
         )}
       </Panel>
+
+      {/* director Q&A — inline clarifying questions before the staged run */}
+      {questions.length > 0 && (
+        <Panel className="rise p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <Eyebrow>Director Q&amp;A</Eyebrow>
+            <span className="font-mono text-[0.7rem] text-faint">
+              {answered}/{questions.length} answered
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-muted">
+            Optional — answer what helps, leave the rest blank. Your answers steer the whole plan.
+          </p>
+          <div className="mt-4 space-y-3">
+            {questions.map((q) => (
+              <div key={q.id} className="rounded-[var(--radius)] border border-border p-3">
+                <p className="text-sm text-fg">{q.question}</p>
+                <p className="mt-0.5 text-xs text-faint">{q.why}</p>
+                <div className="mt-2.5 flex flex-wrap gap-1.5">
+                  {q.options.map((opt) => (
+                    <button
+                      key={opt}
+                      type="button"
+                      onClick={() => pickOption(q.id, opt)}
+                      aria-pressed={picked[q.id] === opt}
+                      className={cn(
+                        "min-h-9 rounded-full border px-3 font-mono text-[0.7rem] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                        picked[q.id] === opt
+                          ? "border-accent bg-accent/10 text-accent"
+                          : "border-border text-muted hover:border-accent/40 hover:text-fg",
+                      )}
+                    >
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+                {q.allow_custom && (
+                  <>
+                    <label className="sr-only" htmlFor={`clarify-${q.id}`}>
+                      Custom answer
+                    </label>
+                    <input
+                      id={`clarify-${q.id}`}
+                      value={custom[q.id] ?? ""}
+                      onChange={(e) => typeCustom(q.id, e.target.value)}
+                      placeholder="or write your own…"
+                      className="mt-2 w-full rounded-[var(--radius)] border border-border bg-bg-soft px-3 py-2 font-mono text-xs text-fg outline-none placeholder:text-faint focus:border-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    />
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <Button variant="primary" onClick={continueRun}>
+              {answered
+                ? `Continue with ${answered} answer${answered === 1 ? "" : "s"}`
+                : "Continue"}
+            </Button>
+            <Button variant="ghost" onClick={skipQuestions}>
+              Skip questions
+            </Button>
+          </div>
+        </Panel>
+      )}
 
       {/* staged run console */}
       {anyStage && (
@@ -202,7 +357,7 @@ export default function PlanPanel({
           {error && (
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <span className="font-mono text-xs text-fail">{error}</span>
-              <Button onClick={run} loading={running}>
+              <Button onClick={() => run(lastAnswers.current)} loading={running}>
                 Retry
               </Button>
             </div>

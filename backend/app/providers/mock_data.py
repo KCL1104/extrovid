@@ -158,6 +158,71 @@ def _review_dict(text: str) -> dict:
     }
 
 
+_CLARIFY_QUESTIONS = [
+    {
+        "id": "q-style",
+        "question": "What visual style should the video have?",
+        "why": "Style drives every look-dev and camera choice downstream.",
+        "options": ["Clean and modern", "Cinematic film look", "Playful and colorful"],
+        "allow_custom": True,
+    },
+    {
+        "id": "q-mood",
+        "question": "What mood or tone should it carry?",
+        "why": "Mood sets the lighting, pacing and music direction.",
+        "options": ["Warm and aspirational", "Bold and energetic", "Calm and premium"],
+        "allow_custom": True,
+    },
+    {
+        "id": "q-setting",
+        "question": "Where does the story take place?",
+        "why": "The setting anchors environments and continuity across shots.",
+        "options": ["Minimal studio set", "Urban outdoors", "Cozy home interior"],
+        "allow_custom": True,
+    },
+]
+
+_STYLE_MOOD_WORDS = (
+    "style",
+    "cinematic",
+    "mood",
+    "tone",
+    "lighting",
+    "aesthetic",
+    "noir",
+    "vibrant",
+    "minimal",
+    "moody",
+    "warm",
+    "playful",
+)
+
+
+def _clarify_dict(text: str) -> dict:
+    """Deterministic clarify triage. Markers ``CLARIFY_FORCE_NONE`` / ``CLARIFY_FORCE_ASK``
+    pin the branch for tests (REVIEW_FORCE precedent); otherwise short prompts or prompts
+    lacking style/mood words get the 3 canned questions, detailed prompts get none."""
+    if "CLARIFY_FORCE_NONE" in text:
+        return {
+            "needs_clarification": False,
+            "questions": [],
+            "prompt_assessment": "Clear: subject, setting, style and mood are all specified.",
+        }
+    lower = text.lower()
+    vague = len(text.strip()) < 80 or not any(w in lower for w in _STYLE_MOOD_WORDS)
+    if "CLARIFY_FORCE_ASK" not in text and not vague:
+        return {
+            "needs_clarification": False,
+            "questions": [],
+            "prompt_assessment": "Clear: the prompt is detailed enough to plan from.",
+        }
+    return {
+        "needs_clarification": True,
+        "questions": _CLARIFY_QUESTIONS,
+        "prompt_assessment": "Clear: the core idea. Missing: visual style, mood and setting.",
+    }
+
+
 def _clamp(value: int, low: int, high: int) -> int:
     return max(low, min(high, value))
 
@@ -222,6 +287,8 @@ def dispatch_mock(messages, info: AgentInfo) -> ModelResponse:
         args = _scene_visual_plan_dict(text)
     elif "verdict" in props:
         args = _review_dict(text)
+    elif "needs_clarification" in props:
+        args = _clarify_dict(text)
     elif "scenes" in props:
         args = _storyboard_dict(text)
     else:  # pragma: no cover - defensive

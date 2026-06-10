@@ -11,9 +11,11 @@ mock model stays consistent with the brief; real Qwen also benefits from the exp
 import asyncio
 
 from app.agents.brief_agent import brief_agent
+from app.agents.clarify_agent import clarify_agent
 from app.agents.script_agent import script_agent
 from app.agents.storyboard_agent import storyboard_agent
 from app.agents.visual_dev_agent import visual_dev_agent
+from app.schemas.api import ClarifyAnswer, ClarifyResult
 from app.schemas.pipeline import (
     BriefInput,
     PipelineResult,
@@ -27,6 +29,18 @@ from app.schemas.pipeline import (
 # --------------------------------------------------------------------------- #
 # prompt builders
 # --------------------------------------------------------------------------- #
+
+
+def fold_clarifications(raw_prompt: str, clarifications: list[ClarifyAnswer] | None) -> str:
+    """Deterministically fold director Q&A answers into the prompt fed to the BriefAgent.
+
+    Skipped/empty answers are omitted; with no usable answers the prompt is untouched.
+    """
+    answered = [a for a in clarifications or [] if a.answer and a.answer.strip()]
+    if not answered:
+        return raw_prompt
+    lines = "".join(f"- {a.question} -> {a.answer.strip()}\n" for a in answered)
+    return raw_prompt + "\n\nCreative direction (director Q&A):\n" + lines
 
 
 def build_script_prompt(brief: BriefInput) -> str:
@@ -95,8 +109,16 @@ def build_storyboard_prompt(
 # --------------------------------------------------------------------------- #
 
 
-async def run_brief(raw_prompt: str) -> BriefInput:
-    result = await brief_agent.run(raw_prompt)
+async def run_clarify(raw_prompt: str) -> ClarifyResult:
+    """Stateless plan-stage triage: should we ask the user clarifying questions first?"""
+    result = await clarify_agent.run(raw_prompt)
+    return result.output
+
+
+async def run_brief(
+    raw_prompt: str, clarifications: list[ClarifyAnswer] | None = None
+) -> BriefInput:
+    result = await brief_agent.run(fold_clarifications(raw_prompt, clarifications))
     return result.output
 
 
@@ -128,8 +150,10 @@ async def run_storyboard(
 # --------------------------------------------------------------------------- #
 
 
-async def run_pipeline(brief_in: BriefInput) -> PipelineResult:
-    filled = await run_brief(brief_in.raw_prompt)
+async def run_pipeline(
+    brief_in: BriefInput, clarifications: list[ClarifyAnswer] | None = None
+) -> PipelineResult:
+    filled = await run_brief(brief_in.raw_prompt, clarifications)
     script = await run_script(filled)
 
     plans = await asyncio.gather(*(run_visual_plan(scene) for scene in script.scenes))
