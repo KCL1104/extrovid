@@ -7,7 +7,7 @@ request/response bodies. They are deliberately separate from the SQLModel DB tab
 Validation rules encode the spec's acceptance constraints:
 - storyboard: 5-10 shots total, globally contiguous order, per-shot duration <= 15s
 - concept set: 4-8 candidate look frames, at most one pre-selected
-- shots may only be routed to t2v/i2v in Milestone 1 (r2v/videoedit reserved)
+- shots may be planned to t2v/i2v/r2v (videoedit is execution-only)
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from app.models.enums import (
     MAX_SHOTS,
     MIN_CONCEPT_FRAMES,
     MIN_SHOTS,
-    PLANNABLE_MODELS_M1,
+    PLANNABLE_MODELS,
     AspectRatio,
     ConceptSetStatus,
     ConceptSetType,
@@ -205,10 +205,10 @@ class ShotDTO(BaseModel):
 
     @field_validator("preferred_model")
     @classmethod
-    def _plannable_in_m1(cls, v: PreferredModel) -> PreferredModel:
-        if v not in PLANNABLE_MODELS_M1:
-            allowed = sorted(m.value for m in PLANNABLE_MODELS_M1)
-            raise ValueError(f"Milestone 1 only plans {allowed}; got {v.value}")
+    def _plannable(cls, v: PreferredModel) -> PreferredModel:
+        if v not in PLANNABLE_MODELS:
+            allowed = sorted(m.value for m in PLANNABLE_MODELS)
+            raise ValueError(f"The planner only routes to {allowed}; got {v.value}")
         return v
 
 

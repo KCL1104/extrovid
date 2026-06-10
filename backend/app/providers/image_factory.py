@@ -7,6 +7,7 @@ dimensions — no network, deterministic — so the whole image flow is testable
 import base64
 from dataclasses import dataclass
 
+from app.core import rate_limit
 from app.core.config import get_settings
 from app.core.http import request_with_retry
 from app.models.enums import AspectRatio
@@ -47,7 +48,9 @@ def _parse_size(size: str) -> tuple[int | None, int | None]:
         return None, None
 
 
-async def generate_image(prompt: str, size: str) -> ImageResult:
+async def generate_image(
+    prompt: str, size: str, negative_prompt: str | None = None
+) -> ImageResult:
     settings = get_settings()
     if settings.use_mock_image:
         w, h = _parse_size(size)
@@ -59,10 +62,14 @@ async def generate_image(prompt: str, size: str) -> ImageResult:
             source_model=f"mock:{settings.qwen_image_model}",
         )
 
+    await rate_limit.acquire("image")
+    params: dict = {"size": size, "n": 1, "prompt_extend": True, "watermark": False}
+    if negative_prompt:
+        params["negative_prompt"] = negative_prompt
     body = {
         "model": settings.qwen_image_model,
         "input": {"messages": [{"role": "user", "content": [{"text": prompt}]}]},
-        "parameters": {"size": size, "n": 1, "prompt_extend": True, "watermark": False},
+        "parameters": params,
     }
     headers = {
         "Authorization": f"Bearer {settings.dashscope_api_key}",
@@ -104,6 +111,7 @@ async def edit_image(source_image_url: str, instruction: str) -> ImageResult:
             source_model=f"mock:{settings.qwen_image_edit_model}",
         )
 
+    await rate_limit.acquire("image")
     body = {
         "model": settings.qwen_image_edit_model,
         "input": {

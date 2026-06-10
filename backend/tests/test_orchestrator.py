@@ -3,7 +3,7 @@
 import pytest
 
 from app.agents.storyboard_agent import DURATION_TOLERANCE
-from app.models.enums import MAX_SHOTS, MIN_SHOTS, PLANNABLE_MODELS_M1
+from app.models.enums import MAX_SHOTS, MIN_SHOTS, PLANNABLE_MODELS
 from app.pipeline.orchestrator import run_pipeline
 from app.schemas.pipeline import BriefInput, PipelineResult
 
@@ -24,7 +24,7 @@ async def test_golden_path_brief_to_storyboard():
     # contiguous global order is guaranteed by the schema validator; re-assert here
     assert sorted(s.order for s in shots) == list(range(len(shots)))
     assert all(0 < s.duration_sec <= 15 for s in shots)
-    assert all(s.preferred_model in PLANNABLE_MODELS_M1 for s in shots)
+    assert all(s.preferred_model in PLANNABLE_MODELS for s in shots)
     assert abs(sb.total_duration_sec - target) <= DURATION_TOLERANCE * target
 
     # one concept set per scene; each 4-8 planned frames with no image asset (M1)

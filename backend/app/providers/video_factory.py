@@ -7,6 +7,7 @@ so the whole generation lifecycle is testable offline and deterministically.
 import uuid
 from dataclasses import dataclass
 
+from app.core import rate_limit
 from app.core.config import get_settings
 from app.core.http import request_with_retry
 
@@ -34,6 +35,7 @@ async def submit_video(
     duration: int,
     first_frame_url: str | None = None,
     reference_urls: list[str] | None = None,
+    negative_prompt: str | None = None,
 ) -> SubmitResult:
     settings = get_settings()
     refs = reference_urls or []
@@ -47,12 +49,15 @@ async def submit_video(
     if settings.use_mock_video:
         return SubmitResult(task_id="mock-" + uuid.uuid4().hex, model=f"mock:{model}")
 
+    await rate_limit.acquire("video")
     params = {
         "resolution": settings.video_resolution,
         "ratio": ratio,
         "duration": duration,
         "prompt_extend": True,
     }
+    if negative_prompt:
+        params["negative_prompt"] = negative_prompt
     if mode == "r2v":
         media = [{"type": "reference_image", "url": u} for u in refs[:5]]
         if first_frame_url and len(media) < 5:
@@ -85,6 +90,7 @@ async def submit_videoedit(source_video_url: str, prompt: str) -> SubmitResult:
     if settings.use_mock_video:
         return SubmitResult(task_id="mock-" + uuid.uuid4().hex, model=f"mock:{model}")
 
+    await rate_limit.acquire("video")
     body = {
         "model": model,
         "input": {"prompt": prompt, "media": [{"type": "video", "url": source_video_url}]},

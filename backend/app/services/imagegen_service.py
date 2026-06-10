@@ -42,8 +42,12 @@ async def generate_images_for_concept_set(
     if todo:
         await assert_within_cap(session, "image", len(todo), auth=auth)
 
+    # the scene's negative rules condition image generation natively too
+    vb = cs.visual_brief or {}
+    negative = "; ".join(str(r) for r in (vb.get("negative_rules") or [])[:6]) or None
+
     for frame in todo:
-        result = await generate_image(frame.prompt, size)
+        result = await generate_image(frame.prompt, size, negative_prompt=negative)
         asset = await store_image(session, project_id, result, frame.prompt)
         frame.image_asset_id = asset.id
         session.add(frame)

@@ -2,7 +2,7 @@
 
 from app.models.memory import CharacterProfile, StylePack
 from app.models.shot import Shot
-from app.services.prompt_service import compose_shot_prompt
+from app.services.prompt_service import compose_negative_prompt, compose_shot_prompt
 
 VISUAL_BRIEF = {
     "scene_order": 0,
@@ -37,7 +37,9 @@ def test_visual_brief_reaches_the_prompt():
     assert "soft golden-hour key light" in p
     assert "#2b2b2b" in p
     assert "minimal, uncluttered set" in p
-    assert p.rstrip().endswith("Avoid: no harsh shadows.")
+    # negatives no longer ride inside the positive prompt — they are a real parameter
+    assert "Avoid" not in p
+    assert compose_negative_prompt(visual_brief=VISUAL_BRIEF) == "no harsh shadows"
 
 
 def test_style_pack_and_character_injection():
@@ -67,7 +69,10 @@ def test_style_pack_and_character_injection():
     assert "hard rim light" in p  # style pack lighting wins over the brief's
     assert "featuring Mia: red coat, short black hair" in p
     assert "always wears the red coat" in p
-    assert "never change her hair" in p
+    neg = compose_negative_prompt(visual_brief=VISUAL_BRIEF, style_pack=sp, character=ch)
+    assert "never change her hair" in neg
+    assert "no harsh shadows" in neg
+    assert "no logos other than the brand" in neg
 
 
 def test_bare_shot_still_produces_a_prompt():

@@ -132,15 +132,14 @@ def test_storyboard_contiguous_order_across_multiple_scenes():
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.parametrize("model", [PreferredModel.T2V, PreferredModel.I2V])
-def test_shot_allows_t2v_i2v(model):
+@pytest.mark.parametrize("model", [PreferredModel.T2V, PreferredModel.I2V, PreferredModel.R2V])
+def test_shot_allows_plannable_models(model):
     assert make_shot(0, model=model).preferred_model == model
 
 
-@pytest.mark.parametrize("model", [PreferredModel.R2V, PreferredModel.VIDEOEDIT])
-def test_shot_rejects_r2v_videoedit_in_m1(model):
-    with pytest.raises(ValidationError, match="Milestone 1"):
-        make_shot(0, model=model)
+def test_shot_rejects_videoedit():
+    with pytest.raises(ValidationError, match="only routes"):
+        make_shot(0, model=PreferredModel.VIDEOEDIT)
 
 
 @pytest.mark.parametrize("dur", [0, -1, 15.1, 30])

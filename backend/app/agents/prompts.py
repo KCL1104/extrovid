@@ -79,9 +79,11 @@ STORYBOARD_SYSTEM = (
 Break the script into an executable shot list: 5 to 10 shots TOTAL across all scenes,
 globally ordered from 0 with no gaps. For each shot give purpose, duration_sec (>0 and <=15),
 the beat it serves, a camera_spec (shot_size, angle, movement, optional lens), a
-performance_spec (subject, action, optional emotion), preferred_model (ONLY 'wan2.7-t2v' or
-'wan2.7-i2v'), at least one acceptance_rule, and a transition. The per-shot durations should
-sum to approximately the given TARGET_DURATION_SEC.
+performance_spec (subject, action, optional emotion), preferred_model ('wan2.7-t2v',
+'wan2.7-i2v', or 'wan2.7-r2v' — prefer 'wan2.7-r2v' when the shot features a recurring
+named character whose appearance must stay consistent), at least one acceptance_rule, and
+a transition. The per-shot durations should sum to approximately the given
+TARGET_DURATION_SEC.
 Blocking: for every shot, fill `framing` — where each visible subject sits in the frame,
 the direction they are facing, and what the focus is on (e.g. "Maya on left third, facing
 right, focus on her hands"). When the shot focuses on a character, name the specific body

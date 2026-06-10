@@ -78,8 +78,13 @@ class ShotVersionStatus(StrEnum):
     REJECTED = "rejected"
 
 
-# Milestone 1 only plans these two models (Phase 1 scope per the spec).
+# Milestone 1 only planned these two models (kept for reference/tests).
 PLANNABLE_MODELS_M1 = frozenset({PreferredModel.T2V, PreferredModel.I2V})
+
+# M2: r2v is plannable — the planner may route shots with recurring cast members to the
+# highest-consistency mode instead of relying on execution-time upgrades. videoedit stays
+# execution-only (it revises an existing take; there is nothing to plan).
+PLANNABLE_MODELS = frozenset({PreferredModel.T2V, PreferredModel.I2V, PreferredModel.R2V})
 
 # Storyboard global shot-count bounds (spec: a 15-30s video from 5-10 shots).
 MIN_SHOTS = 5

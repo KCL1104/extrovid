@@ -37,7 +37,7 @@ from app.providers.video_factory import (
 )
 from app.services import media_service, review_service
 from app.services.asset_service import asset_url, load_bytes, store_bytes
-from app.services.prompt_service import compose_shot_prompt
+from app.services.prompt_service import compose_negative_prompt, compose_shot_prompt
 from app.services.usage_service import assert_within_cap
 
 
@@ -297,6 +297,11 @@ async def submit_shot(
         character=character,
         has_reference_images=bool(reference_urls),
     )
+    negative_prompt = compose_negative_prompt(
+        visual_brief=visual_brief, style_pack=style_pack, character=character
+    )
+    if negative_prompt:
+        gen_params["negative_prompt"] = negative_prompt
 
     version = ShotVersion(
         shot_id=shot.id,
@@ -319,6 +324,7 @@ async def submit_shot(
         duration=duration,
         first_frame_url=first_frame_url,
         reference_urls=reference_urls or None,
+        negative_prompt=negative_prompt,
     )
     version.model = sub.model
     job.task_id = sub.task_id

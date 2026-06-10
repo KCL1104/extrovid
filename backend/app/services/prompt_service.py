@@ -113,14 +113,26 @@ def compose_shot_prompt(
 
     parts.append(f"beat: {shot.beat}")
 
-    prompt = _join(parts)
+    return _join(parts)
 
-    # negative rules go last, as an explicit avoid-list
+
+def compose_negative_prompt(
+    *,
+    visual_brief: dict | None = None,
+    style_pack: StylePack | None = None,
+    character: CharacterProfile | None = None,
+) -> str | None:
+    """The avoid-list as a real ``negative_prompt`` parameter.
+
+    Diffusion models treat the positive prompt as content to render, so negatives no
+    longer ride inside it — they are conditioned against natively by Wan/Qwen-Image.
+    """
+    vb = visual_brief or {}
     negatives: list[str] = []
     for source in (vb.get("negative_rules") or [], style_pack.negative_rules if style_pack else []):
         negatives.extend(str(r) for r in source)
     if character and character.forbidden_changes:
         negatives.extend(str(r) for r in character.forbidden_changes)
-    if negatives:
-        prompt += " Avoid: " + "; ".join(list(dict.fromkeys(negatives))[:6]) + "."
-    return prompt
+    if not negatives:
+        return None
+    return "; ".join(list(dict.fromkeys(negatives))[:6])

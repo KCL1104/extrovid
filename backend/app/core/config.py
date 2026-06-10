@@ -61,6 +61,10 @@ class Settings(BaseSettings):
     http_max_retries: int = 3
     http_retry_base_sec: float = 1.0
 
+    # --- Proactive provider rate limits (requests/minute; 0 = unlimited) ---
+    video_rpm: int = 2
+    image_rpm: int = 10
+
     # --- Object storage (Railway / Tigris S3-compatible) ---
     s3_endpoint: str | None = None
     s3_bucket: str | None = None
