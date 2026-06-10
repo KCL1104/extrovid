@@ -163,6 +163,9 @@ class GenerateShotRequest(BaseModel):
     character_id: str | None = None  # -> r2v using a CharacterProfile's reference frames
     # i2v continuation: seed this shot with the previous shot's last frame
     continue_from_previous: bool = False
+    # best-of-N fan-out: submit N takes with the same direction; once all land, the
+    # highest-scoring passing take is auto-selected (manual selection always wins)
+    num_takes: int = Field(default=1, ge=1, le=4)
 
 
 class EditShotRequest(BaseModel):

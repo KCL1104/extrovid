@@ -63,11 +63,12 @@ async def generate_shot(
 ):
     shot = await _shot_or_404(session, project_id, shot_id)
     try:
-        version, job = await generate_service.submit_shot(
+        takes = await generate_service.submit_shot_batch(
             session,
             project_id,
             shot,
             auth=auth,
+            num_takes=body.num_takes if body else 1,
             first_frame_asset_id=body.first_frame_asset_id if body else None,
             reference_asset_ids=body.reference_asset_ids if body else None,
             character_id=body.character_id if body else None,
@@ -75,6 +76,9 @@ async def generate_shot(
         )
     except LookupError as e:
         raise HTTPException(status_code=400, detail=str(e)) from None
+    # the first take answers the request; siblings are visible via /versions
+    version, job = takes[0]
+    await session.refresh(version)  # auto-select may have flipped `selected`
     return await _version_read(session, version, job)
 
 

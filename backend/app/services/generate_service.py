@@ -12,6 +12,7 @@ relies on poll_and_ingest_job (called by the reconciler loop or the refresh endp
 """
 
 import asyncio
+import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy import select
@@ -201,6 +202,8 @@ async def submit_shot(
     reference_asset_ids: list[str] | None = None,
     character_id: str | None = None,
     continue_from_previous: bool = False,
+    batch_id: str | None = None,
+    batch_size: int = 1,
 ) -> tuple[ShotVersion, GenerationJob]:
     settings = get_settings()
     await assert_within_cap(session, "video", 1, auth=auth)
@@ -218,6 +221,9 @@ async def submit_shot(
         "character_id": character_id,
         "continue_from_previous": continue_from_previous,
     }
+    if batch_id:
+        gen_params["batch_id"] = batch_id
+        gen_params["batch_size"] = batch_size
 
     reference_urls = await _resolve_reference_urls(
         session, project_id, reference_asset_ids, character_id
@@ -337,7 +343,97 @@ async def submit_shot(
 
     if settings.use_mock_video and settings.auto_review:
         await review_service.review_version_safe(session, version)
+    if settings.use_mock_video:
+        await maybe_autoselect_batch(session, version)
     return version, job
+
+
+async def submit_shot_batch(
+    session: AsyncSession,
+    project_id: str,
+    shot: Shot,
+    *,
+    auth: AuthCtx,
+    num_takes: int,
+    first_frame_asset_id: str | None = None,
+    reference_asset_ids: list[str] | None = None,
+    character_id: str | None = None,
+    continue_from_previous: bool = False,
+) -> list[tuple[ShotVersion, GenerationJob]]:
+    """Best-of-N fan-out: N takes with the same direction (ViMax's unwired selector,
+    actually shipped). All-or-nothing cap check up front; siblings share a batch_id so
+    the reviewer-driven auto-select can pick a winner once every take lands."""
+    await assert_within_cap(session, "video", num_takes, auth=auth)
+    batch_id = uuid.uuid4().hex if num_takes > 1 else None
+    out: list[tuple[ShotVersion, GenerationJob]] = []
+    for _ in range(num_takes):
+        out.append(
+            await submit_shot(
+                session,
+                project_id,
+                shot,
+                auth=auth,
+                first_frame_asset_id=first_frame_asset_id,
+                reference_asset_ids=reference_asset_ids,
+                character_id=character_id,
+                continue_from_previous=continue_from_previous,
+                batch_id=batch_id,
+                batch_size=num_takes,
+            )
+        )
+    return out
+
+
+async def maybe_autoselect_batch(session: AsyncSession, version: ShotVersion) -> None:
+    """Once every take of a fan-out batch is terminal, select the best one.
+
+    "Best" = highest review score among passing takes (any scored take as fallback).
+    A manual selection anywhere on the shot always wins — we never override the user.
+    """
+    batch_id = (version.gen_params or {}).get("batch_id")
+    if not batch_id:
+        return
+    batch_size = int((version.gen_params or {}).get("batch_size") or 0)
+    shot_versions = (
+        (await session.execute(select(ShotVersion).where(ShotVersion.shot_id == version.shot_id)))
+        .scalars()
+        .all()
+    )
+    if any(v.selected for v in shot_versions):
+        return
+    siblings = [v for v in shot_versions if (v.gen_params or {}).get("batch_id") == batch_id]
+    if len(siblings) < batch_size:
+        return  # batch still being submitted
+    terminal = {JobStatus.SUCCEEDED.value, JobStatus.FAILED.value}
+    for v in siblings:
+        job = (
+            (
+                await session.execute(
+                    select(GenerationJob).where(GenerationJob.shot_version_id == v.id)
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if job is None or job.status not in terminal:
+            return  # not done yet — a later ingest will re-run this check
+    candidates = [v for v in siblings if v.output_asset_id]
+    if not candidates:
+        return
+    passing = [v for v in candidates if (v.review or {}).get("verdict") == "pass"]
+    pool = passing or candidates
+    winner = max(pool, key=lambda v: v.score if v.score is not None else -1.0)
+    for v in shot_versions:
+        v.selected = v.id == winner.id
+        session.add(v)
+    await session.commit()
+    log.info(
+        "batch.autoselect shot=%s batch=%s winner=%s score=%s",
+        version.shot_id,
+        batch_id,
+        winner.id,
+        winner.score,
+    )
 
 
 async def submit_shot_edit(
@@ -472,6 +568,10 @@ async def poll_and_ingest_job(session: AsyncSession, job: GenerationJob) -> Gene
 
     if reviewed_version is not None and get_settings().auto_review:
         await review_service.review_version_safe(session, reviewed_version)
+    if job.status in (JobStatus.SUCCEEDED.value, JobStatus.FAILED.value):
+        v = await session.get(ShotVersion, job.shot_version_id)
+        if v is not None:
+            await maybe_autoselect_batch(session, v)
     return job
 
 
