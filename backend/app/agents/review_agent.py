@@ -28,6 +28,12 @@ class ReviewResult(BaseModel):
     score: float = Field(..., ge=0, le=10, description="0-10 director's score for the take.")
     notes: list[str] = Field(..., min_length=1, description="Short director-style review notes.")
     suggestions: list[ReviewSuggestion] = Field(default_factory=list, max_length=3)
+    continuity_notes: list[str] = Field(
+        default_factory=list,
+        max_length=3,
+        description="Cross-shot drift vs the previous shot's frame (wardrobe, identity, "
+        "palette, flipped blocking). Empty when nothing drifts.",
+    )
 
 
 review_agent = Agent(

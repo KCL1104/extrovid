@@ -40,7 +40,7 @@ async def generate_brief(
     project_id: str, body: RunRequest, session: AsyncSession = Depends(get_session)
 ):
     brief = await orchestrator.run_brief(body.raw_prompt, body.clarifications)
-    await planning_service.replace_brief(session, project_id, brief)
+    await planning_service.replace_brief(session, project_id, brief, body.clarifications)
     # the parsed brief drives the project's framing (mirrors /run's persist_pipeline)
     project = await session.get(Project, project_id)
     if project:
@@ -55,7 +55,8 @@ async def generate_brief(
 async def generate_script(
     project_id: str, brief: BriefInput, session: AsyncSession = Depends(get_session)
 ):
-    script = await orchestrator.run_script(brief)
+    clar = await planning_service.stored_clarifications(session, project_id)
+    script = await orchestrator.run_script(brief, clar)
     await planning_service.replace_scenes(session, project_id, script)
     project = await session.get(Project, project_id)
     if project and project.status == ProjectStatus.DRAFT.value:
@@ -69,7 +70,8 @@ async def generate_script(
 async def generate_visual_briefs(
     project_id: str, script: ScriptDraft, session: AsyncSession = Depends(get_session)
 ):
-    plans = [await orchestrator.run_visual_plan(scene) for scene in script.scenes]
+    clar = await planning_service.stored_clarifications(session, project_id)
+    plans = [await orchestrator.run_visual_plan(scene, clar) for scene in script.scenes]
     visual_briefs = [p.visual_brief for p in plans]
     concept_specs = [p.concept_set for p in plans]
 
@@ -99,8 +101,9 @@ async def generate_storyboard(
         .all()
     )
     visual_briefs = [VisualBrief.model_validate(r.visual_brief) for r in rows]
+    clar = await planning_service.stored_clarifications(session, project_id)
     storyboard = await orchestrator.run_storyboard(
-        body.script, visual_briefs, body.concept_specs, body.target_duration_sec
+        body.script, visual_briefs, body.concept_specs, body.target_duration_sec, clar
     )
     mapping = {s.order: s.id for s in await planning_service.list_scenes(session, project_id)}
     await planning_service.replace_shots(session, project_id, storyboard, mapping)
@@ -121,5 +124,5 @@ async def run_full_pipeline(
     result = await orchestrator.run_pipeline(
         BriefInput(raw_prompt=body.raw_prompt), clarifications=body.clarifications
     )
-    await planning_service.persist_pipeline(session, project, result)
+    await planning_service.persist_pipeline(session, project, result, body.clarifications)
     return result

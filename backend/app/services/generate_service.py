@@ -26,7 +26,7 @@ from app.models.concept import LookFrame, VisualConceptSet
 from app.models.enums import JobStatus, PreferredModel, PromotedAs, ShotVersionStatus
 from app.models.generation import GenerationJob, ShotVersion
 from app.models.memory import CharacterProfile, StylePack
-from app.models.project import Project
+from app.models.project import Brief, Project
 from app.models.shot import Shot
 from app.providers.video_factory import (
     MOCK_MP4,
@@ -111,39 +111,6 @@ async def _resolve_reference_urls(
     return urls[:5]
 
 
-async def _previous_shot_take(
-    session: AsyncSession, project_id: str, shot: Shot
-) -> tuple[Shot, ShotVersion] | None:
-    """The selected (else latest finished) take of the shot right before this one."""
-    prev = (
-        (
-            await session.execute(
-                select(Shot)
-                .where(Shot.project_id == project_id, Shot.order < shot.order)
-                .order_by(Shot.order.desc())
-            )
-        )
-        .scalars()
-        .first()
-    )
-    if prev is None:
-        return None
-    versions = (
-        (
-            await session.execute(
-                select(ShotVersion).where(
-                    ShotVersion.shot_id == prev.id, ShotVersion.output_asset_id.is_not(None)
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    if not versions:
-        return None
-    return prev, next((v for v in versions if v.selected), versions[-1])
-
-
 async def _continuation_frame_asset_id(
     session: AsyncSession, project_id: str, shot: Shot
 ) -> tuple[str, str]:
@@ -151,7 +118,7 @@ async def _continuation_frame_asset_id(
 
     Returns (asset_id, note). Raises LookupError when there is nothing to continue from.
     """
-    found = await _previous_shot_take(session, project_id, shot)
+    found = await review_service.previous_shot_take(session, project_id, shot)
     if found is None:
         raise LookupError("no finished take on a previous shot to continue from")
     prev_shot, prev_version = found
@@ -290,12 +257,18 @@ async def submit_shot(
         character = await session.get(CharacterProfile, character_id)
         if character and character.project_id != project_id:
             character = None
+    brief_row = (
+        (await session.execute(select(Brief).where(Brief.project_id == project_id)))
+        .scalars()
+        .first()
+    )
     prompt = compose_shot_prompt(
         shot,
         visual_brief=visual_brief,
         style_pack=style_pack,
         character=character,
         has_reference_images=bool(reference_urls),
+        clarifications=brief_row.clarifications if brief_row else None,
     )
     negative_prompt = compose_negative_prompt(
         visual_brief=visual_brief, style_pack=style_pack, character=character

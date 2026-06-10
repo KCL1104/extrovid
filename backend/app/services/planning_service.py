@@ -13,7 +13,7 @@ from app.models.enums import ProjectStatus
 from app.models.project import Brief, Project
 from app.models.scene import Scene
 from app.models.shot import Shot
-from app.schemas.api import ShotUpdate
+from app.schemas.api import ClarifyAnswer, ShotUpdate
 from app.schemas.pipeline import (
     BriefInput,
     PipelineResult,
@@ -57,9 +57,19 @@ async def _clear_all(session: AsyncSession, pid: str) -> None:
 # --------------------------------------------------------------------------- #
 
 
-async def _insert_brief(session: AsyncSession, pid: str, brief: BriefInput) -> None:
+async def _insert_brief(
+    session: AsyncSession,
+    pid: str,
+    brief: BriefInput,
+    clarifications: list[ClarifyAnswer] | None = None,
+) -> None:
     session.add(
-        Brief(project_id=pid, raw_prompt=brief.raw_prompt, parsed=brief.model_dump(mode="json"))
+        Brief(
+            project_id=pid,
+            raw_prompt=brief.raw_prompt,
+            parsed=brief.model_dump(mode="json"),
+            clarifications=[a.model_dump(mode="json") for a in clarifications or []],
+        )
     )
 
 
@@ -159,9 +169,27 @@ async def _scene_id_by_order(session: AsyncSession, pid: str) -> dict[int, str]:
 # --------------------------------------------------------------------------- #
 
 
-async def replace_brief(session: AsyncSession, project_id: str, brief: BriefInput) -> None:
+async def replace_brief(
+    session: AsyncSession,
+    project_id: str,
+    brief: BriefInput,
+    clarifications: list[ClarifyAnswer] | None = None,
+) -> None:
     await _clear_brief(session, project_id)
-    await _insert_brief(session, project_id, brief)
+    await _insert_brief(session, project_id, brief, clarifications)
+
+
+async def stored_clarifications(session: AsyncSession, project_id: str) -> list[ClarifyAnswer]:
+    """The persisted director Q&A for a project ([] when none) — read back by every
+    downstream planning stage so user-stated intent survives past the brief."""
+    row = (
+        (await session.execute(select(Brief).where(Brief.project_id == project_id)))
+        .scalars()
+        .first()
+    )
+    if row is None or not row.clarifications:
+        return []
+    return [ClarifyAnswer.model_validate(a) for a in row.clarifications]
 
 
 async def replace_scenes(
@@ -210,9 +238,14 @@ async def update_shot(session: AsyncSession, shot: Shot, patch: ShotUpdate) -> S
 # --------------------------------------------------------------------------- #
 
 
-async def persist_pipeline(session: AsyncSession, project: Project, result: PipelineResult) -> None:
+async def persist_pipeline(
+    session: AsyncSession,
+    project: Project,
+    result: PipelineResult,
+    clarifications: list[ClarifyAnswer] | None = None,
+) -> None:
     await _clear_all(session, project.id)
-    await _insert_brief(session, project.id, result.brief)
+    await _insert_brief(session, project.id, result.brief, clarifications)
     mapping = await _insert_scenes(session, project.id, result.script)
     await _insert_concept_sets(
         session, project.id, result.concept_specs, mapping, result.visual_briefs

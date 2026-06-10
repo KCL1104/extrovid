@@ -130,11 +130,70 @@ def test_fold_clarifications_format_and_skips():
     ]
     folded = orchestrator.fold_clarifications("a dog video", answers)
     assert folded == (
-        "a dog video\n\nCreative direction (director Q&A):\n- Which era? -> 1920s Paris\n"
+        "a dog video\n\nCreative direction (director Q&A — honor these in every choice):\n"
+        "- Which era? -> 1920s Paris\n"
     )
     # no usable answers -> prompt untouched
     assert orchestrator.fold_clarifications("a dog video", answers[1:]) == "a dog video"
     assert orchestrator.fold_clarifications("a dog video", None) == "a dog video"
+
+
+def test_creative_direction_reaches_every_planning_prompt():
+    """Persisted Q&A must survive past the brief — script, visual and storyboard prompts
+    all carry the block (ViMax per-turn re-grounding applied to the pipeline)."""
+    from app.schemas.pipeline import BriefInput, SceneBeat, SceneDraft, ScriptDraft
+
+    answers = [ClarifyAnswer(question_id="q1", question="Style?", answer="anime, melancholy")]
+    brief = BriefInput(raw_prompt="a dog video")
+    scene = SceneDraft(
+        order=0,
+        title="T",
+        summary="S",
+        beats=[SceneBeat(order=0, description="d")],
+        est_duration_sec=10,
+    )
+    script = ScriptDraft(logline="L", scenes=[scene])
+    assert "anime, melancholy" in orchestrator.build_script_prompt(brief, answers)
+    assert "anime, melancholy" in orchestrator.build_visual_prompt(scene, answers)
+    assert "anime, melancholy" in orchestrator.build_storyboard_prompt(script, [], [], 20, answers)
+    # and without answers the prompts stay clean
+    assert "Creative direction" not in orchestrator.build_script_prompt(brief)
+
+
+async def test_clarifications_persist_and_reach_the_script_stage(client):
+    """POST /brief stores the Q&A; POST /script reads it back and grounds the prompt."""
+    from app.agents.script_agent import script_agent  # noqa: PLC0415
+    from app.providers.mock_data import _script_dict  # noqa: PLC0415
+
+    pid = (await client.post("/api/projects", json={"title": "Persist"})).json()["id"]
+    r = await client.post(
+        f"/api/projects/{pid}/brief",
+        json={
+            "raw_prompt": "a 20s teaser",
+            "clarifications": [
+                {"question_id": "q-style", "question": "Style?", "answer": "Film noir"}
+            ],
+        },
+    )
+    assert r.status_code == 200
+
+    captured: dict = {}
+
+    def fn(messages, info: AgentInfo) -> ModelResponse:
+        captured["prompt"] = _user_text(messages)
+        name = info.output_tools[0].name
+        return ModelResponse(
+            parts=[ToolCallPart(tool_name=name, args=_script_dict(captured["prompt"]))]
+        )
+
+    with script_agent.override(model=FunctionModel(fn)):
+        r2 = await client.post(
+            f"/api/projects/{pid}/script",
+            json={"raw_prompt": "a 20s teaser", "platform": "generic"},
+        )
+    assert r2.status_code == 200
+    # the persisted answer (not re-sent in this request) grounded the script prompt
+    assert "- Style? -> Film noir" in captured["prompt"]
 
 
 async def test_run_brief_folds_answers_into_agent_prompt():
@@ -149,7 +208,7 @@ async def test_run_brief_folds_answers_into_agent_prompt():
     with brief_agent.override(model=FunctionModel(fn)):
         await orchestrator.run_brief("a dog video", answers)
     assert captured["prompt"].startswith("a dog video")
-    assert "Creative direction (director Q&A):" in captured["prompt"]
+    assert "Creative direction (director Q&A" in captured["prompt"]
     assert "- Which era? -> 1920s Paris" in captured["prompt"]
 
     with brief_agent.override(model=FunctionModel(fn)):

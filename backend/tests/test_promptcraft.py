@@ -110,3 +110,13 @@ def test_appearance_anchor_skips_unmatched_subject():
     shot = _shot()  # subject is "the watch" — no name match, no rewrite
     p = compose_shot_prompt(shot, character=ch)
     assert "the watch rotates slowly" in p
+
+
+def test_clarifications_reach_the_shot_prompt():
+    answers = [
+        {"question_id": "q1", "question": "Style?", "answer": "anime, melancholy ending"},
+        {"question_id": "q2", "question": "Mood?", "answer": "   "},  # skipped
+    ]
+    p = compose_shot_prompt(_shot(), clarifications=answers)
+    assert "Creative direction: anime, melancholy ending" in p
+    assert compose_shot_prompt(_shot(), clarifications=[]) == compose_shot_prompt(_shot())

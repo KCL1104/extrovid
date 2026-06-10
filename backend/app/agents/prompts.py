@@ -31,6 +31,12 @@ Judge whether the take satisfies the acceptance rules and the visual direction. 
   video-edit instruction (e.g. "change the background to a rainy street at dusk");
   kind="retake" means regenerate, with the instruction describing what to change in the
   prompt. Never suggest fixes for things you cannot verify from the given facts.
+When a frame from the PREVIOUS shot is attached, also check continuity against it:
+character features (gender, age, facial features, body shape, hairstyle), wardrobe,
+palette and lighting should remain consistent unless the script changes them, and the
+spatial layout should not flip (if A is left of B in the previous shot, do not reverse
+it without a motivated cut). Report violations in continuity_notes (empty when no
+previous frame is attached or nothing drifts).
 Return only the structured object."""
 
 CLARIFY_SYSTEM = """You are a film director's assistant triaging a user's video idea.

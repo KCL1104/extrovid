@@ -33,6 +33,7 @@ def compose_shot_prompt(
     style_pack: StylePack | None = None,
     character: CharacterProfile | None = None,
     has_reference_images: bool = False,
+    clarifications: list[dict] | None = None,
 ) -> str:
     cam = shot.camera_spec or {}
     perf = shot.performance_spec or {}
@@ -68,6 +69,14 @@ def compose_shot_prompt(
     # right next to the action so the model treats them as direction, not decoration
     if shot.extra_direction and shot.extra_direction.strip():
         parts.append(f"Director's notes: {shot.extra_direction.strip()}")
+
+    # persisted director Q&A — durable creative direction reaches execution too
+    answered = [
+        a for a in clarifications or [] if str(a.get("answer", "")).strip()
+    ]
+    if answered:
+        distilled = "; ".join(str(a["answer"]).strip() for a in answered[:4])
+        parts.append(f"Creative direction: {distilled}")
 
     # camera language: shot-level spec, enriched by the scene's camera direction
     cam_desc = " ".join(

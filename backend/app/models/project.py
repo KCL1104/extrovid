@@ -33,4 +33,7 @@ class Brief(SQLModel, table=True):
     project_id: str = Field(foreign_key="project.id", index=True)
     raw_prompt: str
     parsed: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    # director Q&A answers — durable creative direction re-injected into every
+    # downstream planning prompt (not consumed once by the brief and discarded)
+    clarifications: list = Field(default_factory=list, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=_now)

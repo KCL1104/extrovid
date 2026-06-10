@@ -21,6 +21,42 @@ from app.models.shot import Shot
 from app.services.asset_service import asset_url
 
 
+async def previous_shot_take(
+    session: AsyncSession, project_id: str, shot: Shot
+) -> tuple[Shot, ShotVersion] | None:
+    """The selected (else latest finished) take of the shot right before this one.
+
+    Shared by continuation seeding (generate_service) and continuity review.
+    """
+    prev = (
+        (
+            await session.execute(
+                select(Shot)
+                .where(Shot.project_id == project_id, Shot.order < shot.order)
+                .order_by(Shot.order.desc())
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if prev is None:
+        return None
+    versions = (
+        (
+            await session.execute(
+                select(ShotVersion).where(
+                    ShotVersion.shot_id == prev.id, ShotVersion.output_asset_id.is_not(None)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not versions:
+        return None
+    return prev, next((v for v in versions if v.selected), versions[-1])
+
+
 async def _scene_visual_brief(session: AsyncSession, shot: Shot) -> dict | None:
     if not shot.scene_id:
         return None
@@ -45,6 +81,7 @@ def _build_review_prompt(shot: Shot, version: ShotVersion, visual_brief: dict | 
         f"Camera: {cam.get('shot_size', '?')} {cam.get('angle', '')} {cam.get('movement', '')}",
         f"Performance: {perf.get('subject', '?')} — {perf.get('action', '')}"
         + (f" ({perf['emotion']})" if perf.get("emotion") else ""),
+        *([f"Framing: {shot.framing}"] if shot.framing else []),
         f"Beat: {shot.beat}",
         f"Target duration: {shot.duration_sec}s"
         + (f" | actual: {version.duration_sec:.1f}s" if version.duration_sec else ""),
@@ -80,7 +117,22 @@ async def review_version(session: AsyncSession, version: ShotVersion) -> ShotVer
     if settings.review_vision and not settings.use_mock_llm and version.thumbnail_asset_id:
         thumb_url = await asset_url(session, version.thumbnail_asset_id)
         if thumb_url and thumb_url.startswith("http"):
-            user_input = [prompt, ImageUrl(url=thumb_url)]
+            images = [ImageUrl(url=thumb_url)]
+            # continuity: judge against the most recent real pixels of the timeline,
+            # not just text — wardrobe drift / palette jumps / identity flips show here
+            found = await previous_shot_take(session, shot.project_id, shot)
+            if found:
+                prev_shot, prev_version = found
+                if prev_version.thumbnail_asset_id:
+                    prev_url = await asset_url(session, prev_version.thumbnail_asset_id)
+                    if prev_url and prev_url.startswith("http"):
+                        prompt += (
+                            "\nImage 1 is the take under review (poster frame). "
+                            f"Image 2 is a frame from the PREVIOUS shot (#{prev_shot.order}) — "
+                            "check continuity against it."
+                        )
+                        images.append(ImageUrl(url=prev_url))
+            user_input = [prompt, *images]
 
     result = (await review_agent.run(user_input)).output
     version.score = result.score
