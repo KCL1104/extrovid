@@ -25,6 +25,7 @@ from app.schemas.pipeline import (
     SceneDraft,
     SceneVisualPlan,
     ScriptDraft,
+    ShotDTO,
     Storyboard,
     StoryboardScene,
     VisualConceptSetSpec,
@@ -120,6 +121,7 @@ def build_scene_storyboard_prompt(
     budget_sec: float,
     clarifications: list[ClarifyAnswer] | None = None,
     cast: list[CastMember] | None = None,
+    prev_tail: str | None = None,
 ) -> str:
     beats = "; ".join(
         " ".join(filter(None, [b.description, b.narration, b.dialogue])) for b in scene.beats
@@ -135,6 +137,17 @@ def build_scene_storyboard_prompt(
         joined = ", ".join(b for b in bits if b)
         if joined:
             direction = f"\nVisual direction (honor it in camera_spec choices): {joined}"
+    # the continuity baton: each scene is planned in isolation, so the previous scene's
+    # ending is the ONLY cross-scene memory the planner gets — it is what makes a seam
+    # match-cut (or a motivated hard cut) authorable instead of accidental.
+    continuity = ""
+    if prev_tail:
+        continuity = (
+            f"\nCONTINUITY — the previous scene {prev_tail}. Preserve screen direction, "
+            "wardrobe, palette and lighting across the cut unless the script motivates a "
+            "change; if this scene opens on the same space, plan the first shot's "
+            "first_frame_desc to graphically match that ending."
+        )
     return (
         "Plan the shot list for this ONE scene.\n"
         f"SCENE_ORDER={scene.order}\n"
@@ -143,6 +156,7 @@ def build_scene_storyboard_prompt(
         f"Summary: {scene.summary}\n"
         f"Beats: {beats}"
         + direction
+        + continuity
         + cast_block(cast)
         + creative_direction_block(clarifications)
     )
@@ -226,6 +240,25 @@ async def run_visual_plan(
     return result.output
 
 
+def _scene_tail(shots: list[ShotDTO]) -> str | None:
+    """The continuity baton handed to the next scene's planner: the closing image, framing,
+    and subject of this scene's last shot (built in Python from already-planned shots)."""
+    if not shots:
+        return None
+    last = shots[-1]  # last by global order
+    bits: list[str] = []
+    if last.last_frame_desc:
+        bits.append(f"ended on: {last.last_frame_desc}")
+    elif last.first_frame_desc:
+        bits.append(f"ended near: {last.first_frame_desc}")
+    if last.framing:
+        bits.append(f"final framing: {last.framing}")
+    subject = last.performance_spec.subject if last.performance_spec else ""
+    if subject:
+        bits.append(f"subject last in frame: {subject}")
+    return "; ".join(bits) or None
+
+
 async def run_storyboard(
     script: ScriptDraft,
     visual_briefs: list,
@@ -234,39 +267,45 @@ async def run_storyboard(
     clarifications: list[ClarifyAnswer] | None = None,
     cast: list[CastMember] | None = None,
 ) -> Storyboard:
-    """Per-scene fan-out: each scene is planned by its own agent call against its own
-    duration budget; global shot numbering is computed in Python afterwards (structural
-    indices are never the LLM's job). This is what breaks the 5-10-shot ceiling."""
+    """Per-scene fold: each scene is planned by its own agent call against its own duration
+    budget, threading a CONTINUITY baton from the previous scene's ending. Global shot order
+    AND camera_id are renumbered in Python afterwards (structural indices are never the LLM's
+    job) — so camera_id no longer resets to 0 each scene. This breaks the 5-10-shot ceiling
+    while keeping cross-scene continuity authorable (the cost is per-scene-serial planning)."""
     briefs_by_order = {vb.scene_order: vb for vb in visual_briefs}
     total_est = sum(s.est_duration_sec for s in script.scenes) or 1.0
     scale = target_duration_sec / total_est
 
-    async def plan_scene(scene: SceneDraft):
+    scenes_out: list[StoryboardScene] = []
+    next_order = 0
+    camera_offset = 0  # makes per-scene-local camera_ids globally unique
+    prev_tail: str | None = None
+    for scene in sorted(script.scenes, key=lambda s: s.order):
         budget = min(MAX_SCENE_DURATION_SEC, round(scene.est_duration_sec * scale, 1))
         result = await scene_storyboard_agent.run(
             build_scene_storyboard_prompt(
-                scene, briefs_by_order.get(scene.order), budget, clarifications, cast
+                scene, briefs_by_order.get(scene.order), budget, clarifications, cast, prev_tail
             ),
             deps=budget,
         )
-        return scene.order, result.output
-
-    plans = dict(
-        await asyncio.gather(*(plan_scene(scene) for scene in sorted(script.scenes, key=lambda s: s.order)))
-    )
-
-    # assemble: scenes in script order, shots renumbered globally, scene_order enforced
-    scenes_out: list[StoryboardScene] = []
-    next_order = 0
-    for scene in sorted(script.scenes, key=lambda s: s.order):
-        plan = plans[scene.order]
-        shots = []
-        for shot in sorted(plan.shots, key=lambda s: s.order):
+        shots: list[ShotDTO] = []
+        max_local_cam = 0
+        for shot in sorted(result.output.shots, key=lambda s: s.order):
+            local_cam = shot.camera_id or 0
+            max_local_cam = max(max_local_cam, local_cam)
             shots.append(
-                shot.model_copy(update={"order": next_order, "scene_order": scene.order})
+                shot.model_copy(
+                    update={
+                        "order": next_order,
+                        "scene_order": scene.order,
+                        "camera_id": camera_offset + local_cam,
+                    }
+                )
             )
             next_order += 1
+        camera_offset += max_local_cam + 1  # next scene's cameras start past this one's
         scenes_out.append(StoryboardScene(scene_order=scene.order, shots=shots))
+        prev_tail = _scene_tail(shots)
     return Storyboard(scenes=scenes_out)
 
 

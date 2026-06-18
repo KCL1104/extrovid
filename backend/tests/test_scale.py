@@ -5,6 +5,8 @@ Offline (mock LLM + video). The per-scene fan-out is what breaks the 5-10-shot /
 """
 
 from app.models.shot import Shot
+from app.pipeline.orchestrator import _scene_tail, build_scene_storyboard_prompt
+from app.schemas.pipeline import CameraSpec, PerformanceSpec, SceneBeat, SceneDraft, ShotDTO
 from app.services.prompt_service import portrait_view_for
 
 
@@ -74,6 +76,59 @@ def _shot(**kw) -> Shot:
     )
     base.update(kw)
     return Shot(**base)
+
+
+async def test_camera_id_globalized_across_scenes(client):
+    """The continuity baton renumbers camera_id globally, so it no longer resets per scene."""
+    pid = (await client.post("/api/projects", json={"title": "Cam"})).json()["id"]
+    await client.post(f"/api/projects/{pid}/run", json={"raw_prompt": "a 40s teaser"})
+    shots = (await client.get(f"/api/projects/{pid}/storyboard")).json()
+    by_scene: dict[int, list[int]] = {}
+    for s in shots:
+        by_scene.setdefault(s["scene_order"], []).append(s["camera_id"])
+    assert len(by_scene) >= 2  # multi-scene
+    orders = sorted(by_scene)
+    for earlier, later in zip(orders, orders[1:], strict=False):
+        # a later scene's cameras start past the earlier scene's — no reset to 0, no collision
+        assert min(by_scene[later]) > max(by_scene[earlier])
+
+
+def _scene() -> SceneDraft:
+    return SceneDraft(
+        order=1,
+        title="Reveal",
+        summary="the payoff",
+        beats=[SceneBeat(order=0, description="hero shot")],
+        est_duration_sec=10,
+    )
+
+
+def test_scene_storyboard_prompt_carries_continuity_baton():
+    assert "CONTINUITY" not in build_scene_storyboard_prompt(_scene(), None, 10)
+    p = build_scene_storyboard_prompt(
+        _scene(), None, 10, prev_tail="ended on: a wide street at dusk"
+    )
+    assert "CONTINUITY" in p
+    assert "a wide street at dusk" in p
+
+
+def test_scene_tail_summarizes_last_shot():
+    assert _scene_tail([]) is None
+    shot = ShotDTO(
+        order=3,
+        scene_order=0,
+        purpose="exit",
+        duration_sec=4,
+        beat="b",
+        camera_spec=CameraSpec(shot_size="MS", angle="eye-level", movement="static"),
+        performance_spec=PerformanceSpec(subject="Maya", action="turns to the door"),
+        acceptance_rules=["subject in frame"],
+        last_frame_desc="Maya in the doorway, light behind her",
+        framing="Maya center, facing the door",
+    )
+    tail = _scene_tail([shot])
+    assert "Maya in the doorway" in tail
+    assert "Maya center" in tail
 
 
 def test_portrait_view_matching():
