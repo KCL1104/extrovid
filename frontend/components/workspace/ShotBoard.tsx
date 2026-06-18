@@ -1,18 +1,20 @@
 "use client";
 
 import { Film, ImageIcon, Link2, Play } from "lucide-react";
-import type { Character, Shot, ShotVersion } from "@/lib/api";
+import type { Character, Scene, Shot, ShotVersion } from "@/lib/api";
 import { Button, EmptyState, Eyebrow, Panel, Pill, ScoreBadge, Spinner, StatusBadge, cn } from "@/components/ui";
 import {
   aspectClass,
   cameraLine,
   chosenTake,
   isPlayable,
+  isRendered,
   isRunning,
 } from "@/components/workspace/shared";
 
 export default function ShotBoard({
   shots,
+  scenes,
   versions,
   characters,
   aspect,
@@ -25,6 +27,7 @@ export default function ShotBoard({
   onRenderAll,
 }: {
   shots: Shot[];
+  scenes: Scene[];
   versions: Record<string, ShotVersion[]>;
   characters: Character[];
   aspect: string;
@@ -46,6 +49,9 @@ export default function ShotBoard({
   }
   const withKeyframe = shots.filter((s) => s.keyframe_frame_id).length;
   const staleCount = shots.filter((s) => s.stale).length;
+  // group shots into scene bands; scene metadata joins by order (fallback to bare "Sn")
+  const sceneByOrder = new Map(scenes.map((s) => [s.order, s]));
+  const sceneOrders = [...new Set(shots.map((s) => s.scene_order))].sort((a, b) => a - b);
   return (
     <div>
       {/* batch toolbar — keyframes are image-priced; chained render queues on upstream takes */}
@@ -101,19 +107,46 @@ export default function ShotBoard({
           </span>
         </div>
       )}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {shots.map((shot, i) => (
-          <ShotCard
-            key={shot.id}
-            shot={shot}
-            versions={versions[shot.id] ?? []}
-            aspect={aspect}
-            busy={!!busy[shot.id] || generating.includes(shot.id)}
-            onOpen={() => onOpen(shot.id)}
-            onGenerate={() => onGenerate(shot.id)}
-            delay={i * 40}
-          />
-        ))}
+      <div className="space-y-8">
+        {sceneOrders.map((so) => {
+          const scene = sceneByOrder.get(so);
+          const sceneShots = shots.filter((s) => s.scene_order === so);
+          const rendered = sceneShots.filter((s) => isRendered(versions[s.id] ?? [])).length;
+          const dur = sceneShots.reduce(
+            (acc, s) => acc + (chosenTake(versions[s.id] ?? [])?.duration_sec ?? s.duration_sec),
+            0,
+          );
+          const sceneStale = scene?.stale || sceneShots.some((s) => s.stale);
+          return (
+            <section key={so} aria-label={`Scene ${so + 1}`}>
+              <header className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-border pb-2">
+                <span className="eyebrow text-accent">S{so + 1}</span>
+                {scene?.title && <h3 className="title text-lg text-fg">{scene.title}</h3>}
+                <span className="font-mono text-[0.7rem] text-faint">
+                  {sceneShots.length} shot{sceneShots.length === 1 ? "" : "s"} · ~{dur.toFixed(1)}s ·{" "}
+                  {rendered}/{sceneShots.length} rendered
+                </span>
+                {sceneStale && <Pill className="text-run">stale</Pill>}
+              </header>
+              {/* horizontal filmstrip — the storyboard reads as a sequence, not a gallery */}
+              <div className="flex snap-x gap-4 overflow-x-auto pb-3">
+                {sceneShots.map((shot, i) => (
+                  <div key={shot.id} className="w-44 shrink-0 snap-start sm:w-52">
+                    <ShotCard
+                      shot={shot}
+                      versions={versions[shot.id] ?? []}
+                      aspect={aspect}
+                      busy={!!busy[shot.id] || generating.includes(shot.id)}
+                      onOpen={() => onOpen(shot.id)}
+                      onGenerate={() => onGenerate(shot.id)}
+                      delay={i * 40}
+                    />
+                  </div>
+                ))}
+              </div>
+            </section>
+          );
+        })}
       </div>
     </div>
   );

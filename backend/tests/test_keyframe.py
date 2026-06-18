@@ -2,7 +2,43 @@
 
 from app.models.memory import CharacterProfile
 from app.models.shot import Shot
-from app.services.prompt_service import compose_keyframe_prompt, compose_shot_prompt
+from app.services.imagegen_service import _keyframe_edit_instruction
+from app.services.prompt_service import (
+    compose_keyframe_prompt,
+    compose_shot_prompt,
+    portrait_view_for,
+)
+
+
+def _bare_shot(**overrides) -> Shot:
+    base = dict(
+        project_id="p", order=0, scene_order=0, purpose="x", duration_sec=4, beat="b"
+    )
+    return Shot(**{**base, **overrides})
+
+
+def test_portrait_view_matches_shot_direction():
+    front = _bare_shot(performance_spec={"subject": "Mia", "action": "smiles at camera"})
+    assert portrait_view_for(front) == "front"
+    back = _bare_shot(
+        performance_spec={"subject": "Mia", "action": "leaves the room"},
+        framing="Mia centered, back to camera",
+    )
+    assert portrait_view_for(back) == "back"
+    side = _bare_shot(performance_spec={"subject": "Mia", "action": "stands in profile"})
+    assert portrait_view_for(side) == "side"
+    assert portrait_view_for(None) == "front"
+
+
+def test_keyframe_edit_instruction_drops_face_for_back_view():
+    back = _keyframe_edit_instruction("back", "PROMPT")
+    assert "face is not visible" in back
+    assert "identity" not in back  # a from-behind shot is never anchored to a front face
+    assert "PROMPT" in back
+    side = _keyframe_edit_instruction("side", "PROMPT")
+    assert "profile" in side
+    front = _keyframe_edit_instruction("front", "PROMPT")
+    assert "identity" in front
 
 
 async def _project(client):

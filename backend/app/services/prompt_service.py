@@ -16,6 +16,41 @@ def _join(parts: list[str]) -> str:
     return ". ".join(p.strip().rstrip(".") for p in parts if p and p.strip()) + "."
 
 
+# Portrait-view selection (ViMax reference-selection prior): at most ONE portrait view per
+# character, chosen by what the camera will see. Shared by the video reference path
+# (generate_service) and the keyframe image path (imagegen_service) so both anchor identity
+# from the same view instead of always defaulting to the front portrait.
+_BACK_VIEW_CUES = (
+    "from behind",
+    "over-the-shoulder",
+    "over the shoulder",
+    "back view",
+    "walking away",
+    "from the back",
+    "back to camera",
+)
+_SIDE_VIEW_CUES = ("profile", "side view", "from the side", "facing left", "facing right")
+
+
+def portrait_view_for(shot: Shot | None) -> str:
+    """Return the portrait view ('front' | 'side' | 'back') matching the shot's direction."""
+    if shot is None:
+        return "front"
+    text = " ".join(
+        [
+            str(shot.framing or ""),
+            str((shot.performance_spec or {}).get("subject", "")),
+            str((shot.performance_spec or {}).get("action", "")),
+            str(shot.first_frame_desc or ""),
+        ]
+    ).lower()
+    if any(cue in text for cue in _BACK_VIEW_CUES):
+        return "back"
+    if any(cue in text for cue in _SIDE_VIEW_CUES):
+        return "side"
+    return "front"
+
+
 # the planned transition shapes how the take should END (consumed as an ending hint)
 _TRANSITION_ENDINGS = {
     ShotTransition.MATCH_CUT.value: (
@@ -41,7 +76,12 @@ def compose_shot_prompt(
 
     parts: list[str] = []
     if has_reference_images:
-        parts.append("The main subject matches the reference image")
+        if character:
+            parts.append(
+                f"The primary subject matches the reference portrait of {character.name}"
+            )
+        else:
+            parts.append("The main subject matches the reference image")
 
     # action first — what the camera sees. With a cast lock, anchor the subject by
     # visible appearance inline (the video model never sees the character bible, so

@@ -64,7 +64,7 @@ def test_style_pack_and_character_injection():
         character=ch,
         has_reference_images=True,
     )
-    assert p.startswith("The main subject matches the reference image")
+    assert p.startswith("The primary subject matches the reference portrait of Mia")
     assert "film noir" in p
     assert "hard rim light" in p  # style pack lighting wins over the brief's
     assert "featuring Mia: red coat, short black hair" in p
@@ -73,6 +73,11 @@ def test_style_pack_and_character_injection():
     assert "never change her hair" in neg
     assert "no harsh shadows" in neg
     assert "no logos other than the brand" in neg
+
+
+def test_reference_line_without_character_is_generic():
+    p = compose_shot_prompt(_shot(), has_reference_images=True)
+    assert p.startswith("The main subject matches the reference image")
 
 
 def test_bare_shot_still_produces_a_prompt():

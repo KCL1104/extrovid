@@ -1,6 +1,21 @@
 """r2v consistency tests — offline (mock). Promote a concept frame to a character, then
 generate a shot referencing it and confirm it routes to wan2.7-r2v."""
 
+from app.providers.video_factory import _build_r2v_media
+
+
+def test_r2v_media_never_drops_the_first_frame_seed():
+    """A full set of references must not crowd out the continuation/keyframe seed."""
+    refs = [f"u{i}" for i in range(5)]
+    media = _build_r2v_media(refs, "seed")
+    assert len(media) == 5  # provider's media-array limit
+    assert sum(1 for m in media if m["type"] == "reference_image") == 4  # one slot reserved
+    assert media[-1] == {"type": "first_frame", "url": "seed"}  # seed survives
+    # with no seed, references may fill all five slots
+    no_seed = _build_r2v_media(refs, None)
+    assert len(no_seed) == 5
+    assert all(m["type"] == "reference_image" for m in no_seed)
+
 
 async def _project_with_images(client):
     pid = (await client.post("/api/projects", json={"title": "R2V"})).json()["id"]

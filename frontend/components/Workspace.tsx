@@ -542,6 +542,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
         {tab === "shots" && (
           <ShotBoard
             shots={shots}
+            scenes={scenes}
             versions={versions}
             characters={characters}
             aspect={aspect}

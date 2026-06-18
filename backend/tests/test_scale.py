@@ -5,7 +5,7 @@ Offline (mock LLM + video). The per-scene fan-out is what breaks the 5-10-shot /
 """
 
 from app.models.shot import Shot
-from app.services.generate_service import _portrait_view_for
+from app.services.prompt_service import portrait_view_for
 
 
 async def test_long_brief_is_accepted_and_planned_per_scene(client):
@@ -77,11 +77,12 @@ def _shot(**kw) -> Shot:
 
 
 def test_portrait_view_matching():
-    assert _portrait_view_for(None) == "front"
-    assert _portrait_view_for(_shot()) == "front"
+    assert portrait_view_for(None) == "front"
+    assert portrait_view_for(_shot()) == "front"
     assert (
-        _portrait_view_for(_shot(framing="over-the-shoulder behind Maya, facing the window"))
+        portrait_view_for(_shot(framing="over-the-shoulder behind Maya, facing the window"))
         == "back"
     )
-    assert _portrait_view_for(_shot(first_frame_desc="Maya walking away from camera, back view")) == "back"
-    assert _portrait_view_for(_shot(framing="Maya in profile on right third")) == "side"
+    walk_away = _shot(first_frame_desc="Maya walking away from camera, back view")
+    assert portrait_view_for(walk_away) == "back"
+    assert portrait_view_for(_shot(framing="Maya in profile on right third")) == "side"

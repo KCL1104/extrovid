@@ -38,7 +38,11 @@ from app.providers.video_factory import (
 )
 from app.services import media_service, review_service
 from app.services.asset_service import asset_url, load_bytes, store_bytes
-from app.services.prompt_service import compose_negative_prompt, compose_shot_prompt
+from app.services.prompt_service import (
+    compose_negative_prompt,
+    compose_shot_prompt,
+    portrait_view_for,
+)
 from app.services.usage_service import assert_within_cap
 
 
@@ -90,29 +94,9 @@ async def _auto_first_frame_asset_id(session: AsyncSession, project_id: str) -> 
     return row.image_asset_id if row else None
 
 
-_BACK_VIEW_CUES = ("from behind", "over-the-shoulder", "over the shoulder", "back view",
-                   "walking away", "from the back", "back to camera")
-_SIDE_VIEW_CUES = ("profile", "side view", "from the side", "facing left", "facing right")
-
-
-def _portrait_view_for(shot: Shot | None) -> str:
-    """Match the portrait view to the shot's planned direction (ViMax selection prior:
-    at most ONE portrait view per character, chosen by what the camera will see)."""
-    if shot is None:
-        return "front"
-    text = " ".join(
-        [
-            str(shot.framing or ""),
-            str((shot.performance_spec or {}).get("subject", "")),
-            str((shot.performance_spec or {}).get("action", "")),
-            str(shot.first_frame_desc or ""),
-        ]
-    ).lower()
-    if any(cue in text for cue in _BACK_VIEW_CUES):
-        return "back"
-    if any(cue in text for cue in _SIDE_VIEW_CUES):
-        return "side"
-    return "front"
+# Wan r2v accepts up to 5 media items; cap references at 4 so the identity portrait AND a
+# first_frame seed (continuation/keyframe anchor) always survive the provider's media limit.
+_MAX_REFERENCE_IMAGES = 4
 
 
 async def _resolve_reference_urls(
@@ -122,27 +106,43 @@ async def _resolve_reference_urls(
     character_id: str | None,
     shot: Shot | None = None,
 ) -> list[str]:
-    asset_ids: list[str] = list(reference_asset_ids or [])
+    """Resolve reference image URLs in priority tiers, identity portrait first.
+
+    Tier order (highest first): the view-matched character portrait — reserved at slot 0,
+    never evicted — then caller-provided references, then up to two character look frames.
+    Capped so the identity anchor (and the first_frame seed added downstream) is never
+    crowded out by lower-priority references.
+    """
+    portrait_id: str | None = None
+    look_frame_asset_ids: list[str] = []
     if character_id:
         cp = await session.get(CharacterProfile, character_id)
         if cp and cp.project_id == project_id:
             # ONE portrait view, matched to the shot's direction (back view for
-            # over-the-shoulder, etc.) — the identity anchor ahead of look frames
+            # over-the-shoulder, etc.) — the identity anchor ahead of everything else
             portraits = cp.portrait_assets or {}
-            view = _portrait_view_for(shot)
-            aid = portraits.get(view) or portraits.get("front")
-            if aid:
-                asset_ids.append(aid)
+            view = portrait_view_for(shot)
+            portrait_id = portraits.get(view) or portraits.get("front")
             for fid in cp.reference_look_frame_ids:
                 lf = await session.get(LookFrame, fid)
                 if lf and lf.image_asset_id:
-                    asset_ids.append(lf.image_asset_id)
+                    look_frame_asset_ids.append(lf.image_asset_id)
+
+    # priority order: portrait (identity anchor) > caller refs > at most two look frames
+    ordered: list[str] = []
+    if portrait_id:
+        ordered.append(portrait_id)
+    ordered.extend(reference_asset_ids or [])
+    ordered.extend(look_frame_asset_ids[:2])
+
     urls: list[str] = []
-    for aid in dict.fromkeys(asset_ids):  # dedupe, keep order
+    for aid in dict.fromkeys(ordered):  # dedupe, preserve priority order
         u = await asset_url(session, aid)
         if u:
             urls.append(u)
-    return urls[:5]
+        if len(urls) >= _MAX_REFERENCE_IMAGES:
+            break
+    return urls
 
 
 async def _continuation_frame_asset_id(

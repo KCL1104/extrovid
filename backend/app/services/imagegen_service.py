@@ -15,7 +15,11 @@ from app.models.project import Project
 from app.models.shot import Shot
 from app.providers.image_factory import edit_image, generate_image, size_for_aspect
 from app.services.asset_service import asset_url, store_image
-from app.services.prompt_service import compose_keyframe_prompt, compose_negative_prompt
+from app.services.prompt_service import (
+    compose_keyframe_prompt,
+    compose_negative_prompt,
+    portrait_view_for,
+)
 from app.services.usage_service import assert_within_cap
 
 
@@ -59,6 +63,32 @@ async def generate_images_for_concept_set(
     session.add(cs)
     await session.commit()
     return list(frames)
+
+
+def _keyframe_edit_instruction(view: str, prompt: str) -> str:
+    """Repaint instruction phrased for the portrait VIEW the camera will see.
+
+    A back/profile shot anchored to a FRONT face fights the camera and drives identity
+    drift, so the back/side variants drop face-identity language and lock the visible
+    attributes (hair, build, wardrobe) instead.
+    """
+    if view == "back":
+        return (
+            f"Repaint this character seen from behind into a new scene, based on the "
+            f"provided back-view portrait: {prompt} Keep the hair, build, and wardrobe "
+            "consistent with the base image; the face is not visible."
+        )
+    if view == "side":
+        return (
+            f"Repaint this character in profile into a new scene, based on the provided "
+            f"side-view portrait: {prompt} Keep the facial profile, hair, build, and "
+            "wardrobe consistent with the base image."
+        )
+    return (
+        f"Repaint this exact character into a new scene: {prompt} "
+        "Keep the character's identity (face, hair, build, wardrobe) consistent with the "
+        "base image."
+    )
 
 
 async def generate_shot_keyframe(
@@ -108,14 +138,16 @@ async def generate_shot_keyframe(
     )
 
     await assert_within_cap(session, "image", 1, auth=auth)
-    front_id = (character.portrait_assets or {}).get("front") if character else None
-    front_url = await asset_url(session, front_id) if front_id else None
-    if front_url:
-        result = await edit_image(
-            front_url,
-            f"Repaint this exact character into a new scene: {prompt} "
-            "Keep the character's identity consistent with the base image.",
-        )
+    # anchor the keyframe to the portrait view the camera will actually see; only edit when
+    # that exact view exists — editing a front face into a back/profile shot fights the
+    # camera, so a missing view falls back to text->image (the prompt already carries the
+    # character description, first_frame_desc, and framing).
+    portraits = (character.portrait_assets or {}) if character else {}
+    view = portrait_view_for(shot) if character else "front"
+    base_id = portraits.get(view)
+    base_url = await asset_url(session, base_id) if base_id else None
+    if base_url:
+        result = await edit_image(base_url, _keyframe_edit_instruction(view, prompt))
     else:
         result = await generate_image(prompt, size, negative_prompt=negative)
     asset = await store_image(session, project_id, result, prompt)

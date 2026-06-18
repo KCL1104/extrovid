@@ -28,6 +28,20 @@ class PollResult:
     failure: str | None = None
 
 
+def _build_r2v_media(refs: list[str], first_frame_url: str | None) -> list[dict]:
+    """Reference-image media for r2v, reserving a slot for the first_frame seed.
+
+    Wan accepts at most 5 media items. The previous code appended the first_frame only
+    ``if len(media) < 5``, so a full set of 5 references silently dropped the
+    continuation/keyframe seed. Reserving the slot up front keeps the seed authoritative.
+    """
+    capacity = 5 - (1 if first_frame_url else 0)
+    media: list[dict] = [{"type": "reference_image", "url": u} for u in (refs or [])[:capacity]]
+    if first_frame_url:
+        media.append({"type": "first_frame", "url": first_frame_url})
+    return media
+
+
 async def submit_video(
     prompt: str,
     *,
@@ -59,9 +73,7 @@ async def submit_video(
     if negative_prompt:
         params["negative_prompt"] = negative_prompt
     if mode == "r2v":
-        media = [{"type": "reference_image", "url": u} for u in refs[:5]]
-        if first_frame_url and len(media) < 5:
-            media.append({"type": "first_frame", "url": first_frame_url})
+        media = _build_r2v_media(refs, first_frame_url)
         body = {"model": model, "input": {"prompt": prompt, "media": media}, "parameters": params}
     elif mode == "i2v":
         body = {
