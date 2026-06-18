@@ -147,6 +147,8 @@ class LookFrameRead(BaseModel):
     image_asset_id: str | None
     image_url: str | None = None  # presigned GET URL when an image has been generated
     parent_frame_id: str | None = None  # set when this frame was refined from another
+    review: dict | None = None  # keyframe gate verdict (ReviewResult) — None until reviewed
+    score: float | None = None  # keyframe gate score 0-10
 
 
 class RefineFrameRequest(BaseModel):
@@ -329,6 +331,8 @@ class ShotRead(BaseModel):
     motion_desc: str | None = None
     variation_type: str = "small"
     keyframe_frame_id: str | None = None
+    keyframe_verdict: str | None = None  # keyframe gate verdict: "pass" | "revise" | None
+    keyframe_score: float | None = None  # keyframe gate score 0-10
     stale: bool = False  # an upstream artifact changed after this was planned
 
 

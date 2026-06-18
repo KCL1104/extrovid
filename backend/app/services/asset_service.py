@@ -175,6 +175,8 @@ async def frames_to_read(session: AsyncSession, frames: list[LookFrame]) -> list
             image_asset_id=f.image_asset_id,
             image_url=await asset_url(session, f.image_asset_id),
             parent_frame_id=f.parent_frame_id,
+            review=f.review,
+            score=f.score,
         )
         for f in frames
     ]

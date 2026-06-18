@@ -1,5 +1,6 @@
 "use client";
 
+import { Fragment } from "react";
 import { Film, ImageIcon, Link2, Play } from "lucide-react";
 import type { Character, Scene, Shot, ShotVersion } from "@/lib/api";
 import { Button, EmptyState, Eyebrow, Panel, Pill, ScoreBadge, Spinner, StatusBadge, cn } from "@/components/ui";
@@ -49,6 +50,11 @@ export default function ShotBoard({
   }
   const withKeyframe = shots.filter((s) => s.keyframe_frame_id).length;
   const staleCount = shots.filter((s) => s.stale).length;
+  const renderedCount = shots.filter((s) => isRendered(versions[s.id] ?? [])).length;
+  const runningCount = shots.filter(
+    (s) => (versions[s.id] ?? []).some(isRunning) || generating.includes(s.id),
+  ).length;
+  const reviseCount = shots.filter((s) => s.keyframe_verdict === "revise").length;
   // group shots into scene bands; scene metadata joins by order (fallback to bare "Sn")
   const sceneByOrder = new Map(scenes.map((s) => [s.order, s]));
   const sceneOrders = [...new Set(shots.map((s) => s.scene_order))].sort((a, b) => a - b);
@@ -83,6 +89,27 @@ export default function ShotBoard({
         </Button>
         {staleCount > 0 && (
           <Pill className="text-run">{staleCount} stale — replanning recommended</Pill>
+        )}
+      </div>
+      {/* live production counts — the board reads as a crew dashboard, not a static gallery */}
+      <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[0.7rem] text-faint">
+        <span>
+          {withKeyframe}/{shots.length} keyframed
+        </span>
+        <span aria-hidden>·</span>
+        <span>
+          {renderedCount}/{shots.length} rendered
+        </span>
+        {runningCount > 0 && (
+          <span className="inline-flex items-center gap-1 text-run">
+            <span className="size-1.5 rounded-full bg-run pulse-dot" aria-hidden />
+            {runningCount} running
+          </span>
+        )}
+        {reviseCount > 0 && (
+          <span className="text-run">
+            {reviseCount} keyframe{reviseCount === 1 ? "" : "s"} to revise
+          </span>
         )}
       </div>
       {characters.length > 0 && (
@@ -265,6 +292,7 @@ function ShotCard({
         <p className="mt-1 font-mono text-[0.7rem] leading-relaxed text-faint">
           {cameraLine(shot)} — {shot.performance_spec.subject}: {shot.performance_spec.action}
         </p>
+        <StageStrip shot={shot} jobRunning={jobRunning} failed={failed} take={take} />
         {!take && !jobRunning && !failed && (
           <div className="mt-3">
             <Button variant="primary" onClick={onGenerate} className="w-full justify-center">
@@ -274,5 +302,72 @@ function ShotCard({
         )}
       </div>
     </Panel>
+  );
+}
+
+const STAGE_DOT: Record<string, string> = {
+  ok: "bg-ok",
+  run: "bg-run pulse-dot",
+  fail: "bg-fail",
+  off: "bg-border-hi",
+};
+const STAGE_TEXT: Record<string, string> = {
+  ok: "text-ok",
+  run: "text-run",
+  fail: "text-fail",
+  off: "text-faint",
+};
+
+/** Per-shot pipeline rail: keyframe (gate) → render → review, color-coded by state. */
+function StageStrip({
+  shot,
+  jobRunning,
+  failed,
+  take,
+}: {
+  shot: Shot;
+  jobRunning: boolean;
+  failed: boolean;
+  take?: ShotVersion;
+}) {
+  const kfTone = !shot.keyframe_frame_id
+    ? "off"
+    : shot.keyframe_verdict === "revise"
+      ? "run"
+      : "ok";
+  const renderTone = jobRunning ? "run" : failed ? "fail" : take ? "ok" : "off";
+  const reviewTone = !take?.review ? "off" : take.review.verdict === "revise" ? "fail" : "ok";
+  const stages = [
+    {
+      key: "kf",
+      tone: kfTone,
+      text: "kf",
+      title: `keyframe — ${shot.keyframe_frame_id ? (shot.keyframe_verdict ?? "set") : "not generated"}`,
+    },
+    {
+      key: "render",
+      tone: renderTone,
+      text: "render",
+      title: `render — ${jobRunning ? "running" : failed ? "failed" : take ? "rendered" : "not generated"}`,
+    },
+    {
+      key: "review",
+      tone: reviewTone,
+      text: take?.score != null ? `★${take.score.toFixed(1)}` : "review",
+      title: `review — ${take?.review?.verdict ?? "not reviewed"}`,
+    },
+  ];
+  return (
+    <div className="mt-3 flex items-center gap-1.5" aria-label="shot pipeline status">
+      {stages.map((s, i) => (
+        <Fragment key={s.key}>
+          {i > 0 && <span className="h-px flex-1 bg-border" aria-hidden />}
+          <span className="inline-flex items-center gap-1 font-mono text-[0.6rem]" title={s.title}>
+            <span className={cn("size-1.5 rounded-full", STAGE_DOT[s.tone])} aria-hidden />
+            <span className={STAGE_TEXT[s.tone]}>{s.text}</span>
+          </span>
+        </Fragment>
+      ))}
+    </div>
   );
 }

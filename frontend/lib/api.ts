@@ -77,6 +77,8 @@ export type LookFrame = {
   image_asset_id: string | null;
   image_url: string | null;
   parent_frame_id?: string | null;
+  review?: Review | null; // keyframe gate verdict (set once reviewed)
+  score?: number | null; // keyframe gate score 0-10
 };
 export type VisualBrief = {
   scene_order: number;
@@ -123,6 +125,8 @@ export type Shot = {
   motion_desc?: string | null;
   variation_type?: string;
   keyframe_frame_id?: string | null; // generated keyframe image (i2v/r2v seed)
+  keyframe_verdict?: string | null; // keyframe gate: "pass" | "revise" | null
+  keyframe_score?: number | null; // keyframe gate score 0-10
   stale?: boolean; // an upstream artifact changed after this was planned
 };
 
@@ -405,6 +409,9 @@ export const generateKeyframe = (id: string, shotId: string) =>
   api<LookFrame>(`/projects/${id}/shots/${shotId}/keyframe`, { method: "POST" });
 export const generateAllKeyframes = (id: string) =>
   api<LookFrame[]>(`/projects/${id}/storyboard/keyframes`, { method: "POST" });
+// keyframe gate: re-run the identity/composition/view review on the shot's keyframe
+export const reviewKeyframe = (id: string, shotId: string) =>
+  api<LookFrame>(`/projects/${id}/shots/${shotId}/keyframe/review`, { method: "POST" });
 
 // cast pipeline
 export const generateCast = (id: string) =>

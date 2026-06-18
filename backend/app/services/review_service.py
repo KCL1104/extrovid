@@ -11,14 +11,16 @@ from pydantic_ai import ImageUrl
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.review_agent import review_agent
+from app.agents.review_agent import keyframe_review_agent, review_agent
 from app.core.config import get_settings
 from app.core.logging import log
-from app.models.concept import VisualConceptSet
+from app.models.concept import LookFrame, VisualConceptSet
 from app.models.enums import ShotVersionStatus
 from app.models.generation import ShotVersion
+from app.models.memory import CharacterProfile
 from app.models.shot import Shot
 from app.services.asset_service import asset_url
+from app.services.prompt_service import portrait_view_for
 
 
 async def previous_shot_take(
@@ -156,4 +158,91 @@ async def review_version_safe(session: AsyncSession, version: ShotVersion) -> No
         await session.commit()
     except Exception as exc:  # noqa: BLE001 - review is advisory, never fatal
         log.warning("review.failed version=%s err=%s", version.id, exc)
+        await session.rollback()
+
+
+_VIEW_PHRASE = {
+    "back": "(seen from behind — the face must NOT be visible)",
+    "side": "(profile)",
+    "front": "(facing camera)",
+}
+
+
+def _build_keyframe_review_prompt(
+    shot: Shot, frame: LookFrame, character: CharacterProfile | None
+) -> str:
+    perf = shot.performance_spec or {}
+    view = portrait_view_for(shot)
+    lines = [
+        f"Shot #{shot.order} — {shot.purpose}",
+        *([f"Planned opening frame: {shot.first_frame_desc}"] if shot.first_frame_desc else []),
+        *([f"Blocking/framing: {shot.framing}"] if shot.framing else []),
+        f"Subject: {perf.get('subject', '?')}",
+        f"Expected camera view of the subject: {view} {_VIEW_PHRASE[view]}",
+        *([f"Director's notes: {shot.extra_direction}"] if shot.extra_direction else []),
+        f"Keyframe prompt: {frame.prompt}",
+    ]
+    if character:
+        appearance = (character.description or "").strip()
+        if appearance:
+            lines.append(f"Character {character.name} canonical appearance: {appearance}")
+        if character.wardrobe_rules:
+            lines.append("Wardrobe: " + ", ".join(str(r) for r in character.wardrobe_rules[:3]))
+    return "\n".join(lines)
+
+
+async def review_keyframe(
+    session: AsyncSession,
+    frame: LookFrame,
+    shot: Shot,
+    character: CharacterProfile | None = None,
+) -> LookFrame:
+    """Run the keyframe gate and persist the verdict on the LookFrame. Caller owns commit.
+
+    Judges the still keyframe (identity/composition/view) BEFORE video budget is spent. With
+    vision enabled (real LLM), the keyframe image and the view-matched reference portrait are
+    attached so identity is checked against ground truth, not just text.
+    """
+    settings = get_settings()
+    prompt = _build_keyframe_review_prompt(shot, frame, character)
+
+    user_input: str | list = prompt
+    if settings.review_vision and not settings.use_mock_llm and frame.image_asset_id:
+        kf_url = await asset_url(session, frame.image_asset_id)
+        if kf_url and kf_url.startswith("http"):
+            images = [ImageUrl(url=kf_url)]
+            if character:
+                portraits = character.portrait_assets or {}
+                view = portrait_view_for(shot)
+                portrait_id = portraits.get(view) or portraits.get("front")
+                if portrait_id:
+                    p_url = await asset_url(session, portrait_id)
+                    if p_url and p_url.startswith("http"):
+                        prompt += (
+                            "\nImage 1 is the keyframe under review. Image 2 is the "
+                            f"character's reference portrait ({view} view) — the identity "
+                            "ground truth; check the keyframe matches it."
+                        )
+                        images.append(ImageUrl(url=p_url))
+            user_input = [prompt, *images]
+
+    result = (await keyframe_review_agent.run(user_input)).output
+    frame.score = result.score
+    frame.review = result.model_dump(mode="json")
+    session.add(frame)
+    return frame
+
+
+async def review_keyframe_safe(
+    session: AsyncSession,
+    frame: LookFrame,
+    shot: Shot,
+    character: CharacterProfile | None = None,
+) -> None:
+    """Best-effort keyframe review + commit; never raises (the gate is advisory)."""
+    try:
+        await review_keyframe(session, frame, shot, character)
+        await session.commit()
+    except Exception as exc:  # noqa: BLE001 - the gate is advisory, never fatal
+        log.warning("keyframe_review.failed frame=%s err=%s", frame.id, exc)
         await session.rollback()

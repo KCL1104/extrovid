@@ -41,3 +41,7 @@ class LookFrame(SQLModel, table=True):
     selected: bool = False
     # Qwen-Image-Edit refine lineage: the frame this one was refined from.
     parent_frame_id: str | None = None
+    # Keyframe quality gate: the AI verdict on a shot keyframe (identity/composition/view)
+    # so it can be approved or revised BEFORE any video budget is spent. ReviewResult dump.
+    review: dict | None = Field(default=None, sa_column=Column(JSON))
+    score: float | None = None

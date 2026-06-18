@@ -131,6 +131,48 @@ async def test_generate_all_keyframes_skips_existing(client):
     assert len(r.json()) == len(shots) - 1  # the one with a keyframe was skipped
 
 
+async def test_keyframe_carries_a_gate_verdict(client):
+    """Every generated keyframe is reviewed (identity/composition/view) before video spend."""
+    pid, shots = await _project(client)
+    sid = shots[0]["id"]
+    frame = (await client.post(f"/api/projects/{pid}/shots/{sid}/keyframe")).json()
+    assert frame["score"] is not None and 0 <= frame["score"] <= 10
+    assert frame["review"]["verdict"] in ("pass", "revise")
+    # the verdict is surfaced on the storyboard so the board can flag it before "Render all"
+    shot = next(
+        s for s in (await client.get(f"/api/projects/{pid}/storyboard")).json() if s["id"] == sid
+    )
+    assert shot["keyframe_verdict"] == frame["review"]["verdict"]
+    assert shot["keyframe_score"] == frame["score"]
+
+
+async def test_keyframe_gate_flags_revise(client):
+    pid, shots = await _project(client)
+    sid = shots[0]["id"]
+    # director's notes feed the keyframe review prompt; REVIEW_FORCE pins the mock verdict
+    await client.patch(
+        f"/api/projects/{pid}/shots/{sid}", json={"extra_direction": "REVIEW_FORCE=revise"}
+    )
+    frame = (await client.post(f"/api/projects/{pid}/shots/{sid}/keyframe")).json()
+    assert frame["review"]["verdict"] == "revise"
+    assert frame["score"] < 6
+
+
+async def test_manual_keyframe_review_endpoint(client):
+    pid, shots = await _project(client)
+    sid = shots[0]["id"]
+    await client.post(f"/api/projects/{pid}/shots/{sid}/keyframe")
+    r = await client.post(f"/api/projects/{pid}/shots/{sid}/keyframe/review")
+    assert r.status_code == 200
+    assert r.json()["review"]["verdict"] == "pass"
+
+
+async def test_keyframe_review_404_without_keyframe(client):
+    pid, shots = await _project(client)
+    r = await client.post(f"/api/projects/{pid}/shots/{shots[0]['id']}/keyframe/review")
+    assert r.status_code == 404
+
+
 async def test_explicit_first_frame_beats_keyframe(client):
     pid, shots = await _project(client)
     sid = shots[0]["id"]

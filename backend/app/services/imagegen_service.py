@@ -8,12 +8,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import AuthCtx
+from app.core.config import get_settings
 from app.models.concept import LookFrame, VisualConceptSet
 from app.models.enums import ConceptSetStatus
 from app.models.memory import CharacterProfile, StylePack
 from app.models.project import Project
 from app.models.shot import Shot
 from app.providers.image_factory import edit_image, generate_image, size_for_aspect
+from app.services import review_service
 from app.services.asset_service import asset_url, store_image
 from app.services.prompt_service import (
     compose_keyframe_prompt,
@@ -166,6 +168,9 @@ async def generate_shot_keyframe(
     session.add(shot)
     await session.commit()
     await session.refresh(frame)
+    # gate the keyframe before any video budget is spent: identity/composition/view verdict
+    if get_settings().auto_review:
+        await review_service.review_keyframe_safe(session, frame, shot, character)
     return frame
 
 

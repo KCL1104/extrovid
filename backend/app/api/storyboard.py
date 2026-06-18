@@ -1,15 +1,17 @@
 """Read endpoints for stored planning artifacts + per-shot direction edits + keyframes."""
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_owned_project
 from app.core.auth import AuthCtx, current_auth
 from app.core.db import get_session
+from app.models.concept import LookFrame
 from app.models.memory import CharacterProfile
 from app.models.shot import Shot
 from app.schemas.api import ConceptSetRead, LookFrameRead, SceneRead, ShotRead, ShotUpdate
-from app.services import asset_service, imagegen_service, planning_service
+from app.services import asset_service, imagegen_service, planning_service, review_service
 
 router = APIRouter(
     prefix="/projects/{project_id}", tags=["reads"], dependencies=[Depends(get_owned_project)]
@@ -40,7 +42,22 @@ async def get_concept_sets(project_id: str, session: AsyncSession = Depends(get_
 
 @router.get("/storyboard", response_model=list[ShotRead])
 async def get_storyboard(project_id: str, session: AsyncSession = Depends(get_session)):
-    return await planning_service.list_shots(session, project_id)
+    shots = await planning_service.list_shots(session, project_id)
+    # join each shot's keyframe gate verdict so the board can flag "revise" before render
+    kf_ids = [s.keyframe_frame_id for s in shots if s.keyframe_frame_id]
+    keyframes: dict[str, LookFrame] = {}
+    if kf_ids:
+        rows = (await session.execute(select(LookFrame).where(LookFrame.id.in_(kf_ids)))).scalars()
+        keyframes = {f.id: f for f in rows}
+    out: list[ShotRead] = []
+    for s in shots:
+        read = ShotRead.model_validate(s)
+        kf = keyframes.get(s.keyframe_frame_id) if s.keyframe_frame_id else None
+        if kf is not None:
+            read.keyframe_verdict = (kf.review or {}).get("verdict")
+            read.keyframe_score = kf.score
+        out.append(read)
+    return out
 
 
 @router.patch("/shots/{shot_id}", response_model=ShotRead)
@@ -79,6 +96,29 @@ async def generate_keyframe(
     if shot is None or shot.project_id != project_id:
         raise HTTPException(status_code=404, detail="shot not found")
     frame = await imagegen_service.generate_shot_keyframe(session, project_id, shot, auth=auth)
+    return (await asset_service.frames_to_read(session, [frame]))[0]
+
+
+@router.post("/shots/{shot_id}/keyframe/review", response_model=LookFrameRead)
+async def review_shot_keyframe(
+    project_id: str,
+    shot_id: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """Re-run the keyframe gate (identity/composition/view) for this shot's keyframe."""
+    shot = await session.get(Shot, shot_id)
+    if shot is None or shot.project_id != project_id:
+        raise HTTPException(status_code=404, detail="shot not found")
+    if not shot.keyframe_frame_id:
+        raise HTTPException(status_code=404, detail="shot has no keyframe to review")
+    frame = await session.get(LookFrame, shot.keyframe_frame_id)
+    if frame is None:
+        raise HTTPException(status_code=404, detail="keyframe not found")
+    character = (
+        await session.get(CharacterProfile, shot.character_id) if shot.character_id else None
+    )
+    await review_service.review_keyframe(session, frame, shot, character)
+    await session.commit()
     return (await asset_service.frames_to_read(session, [frame]))[0]
 
 

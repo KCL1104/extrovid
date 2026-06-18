@@ -11,7 +11,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 
-from app.agents.prompts import REVIEW_SYSTEM
+from app.agents.prompts import KEYFRAME_REVIEW_SYSTEM, REVIEW_SYSTEM
 from app.core.config import get_settings
 from app.providers.model_factory import get_model
 
@@ -40,5 +40,14 @@ review_agent = Agent(
     get_model(),
     output_type=ReviewResult,
     system_prompt=REVIEW_SYSTEM,
+    retries=get_settings().llm_retries,
+)
+
+# Keyframe gate: same structured verdict, but judges a STILL image (identity/composition/
+# view) before video budget is spent — see KEYFRAME_REVIEW_SYSTEM.
+keyframe_review_agent = Agent(
+    get_model(),
+    output_type=ReviewResult,
+    system_prompt=KEYFRAME_REVIEW_SYSTEM,
     retries=get_settings().llm_retries,
 )
