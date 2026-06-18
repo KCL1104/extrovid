@@ -38,6 +38,7 @@ def _fake_auth() -> AuthCtx:
         user_id="test-user",
         video_cap=s.daily_video_cap,
         image_cap=s.daily_image_cap,
+        audio_cap=s.daily_audio_cap,
     )
 
 

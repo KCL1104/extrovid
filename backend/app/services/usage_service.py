@@ -71,6 +71,20 @@ async def _image_count(session: AsyncSession, owner_id: str | None) -> int:
     return int((await session.execute(stmt)).scalar_one())
 
 
+async def _audio_count(session: AsyncSession, owner_id: str | None) -> int:
+    stmt = _scope_images(
+        select(func.count())
+        .select_from(ImageAsset)
+        .where(
+            ImageAsset.content_type.like("audio/%"),
+            ImageAsset.created_at >= _today_start(),
+            ImageAsset.source_model.not_like("ffmpeg:%"),
+        ),
+        owner_id,
+    )
+    return int((await session.execute(stmt)).scalar_one())
+
+
 async def _failed_count(session: AsyncSession, owner_id: str | None) -> int:
     stmt = _scope_videos(
         select(func.count())
@@ -91,15 +105,25 @@ async def _spend_usd(session: AsyncSession, owner_id: str | None) -> float:
         ),
         owner_id,
     )
+    # attribute spend by content_type so audio is NOT mislabeled as image spend
     istmt = _scope_images(
         select(func.coalesce(func.sum(ImageAsset.cost_usd), 0.0)).where(
-            ImageAsset.created_at >= _today_start()
+            ImageAsset.content_type.like("image/%"),
+            ImageAsset.created_at >= _today_start(),
+        ),
+        owner_id,
+    )
+    astmt = _scope_images(
+        select(func.coalesce(func.sum(ImageAsset.cost_usd), 0.0)).where(
+            ImageAsset.content_type.like("audio/%"),
+            ImageAsset.created_at >= _today_start(),
         ),
         owner_id,
     )
     video = (await session.execute(vstmt)).scalar_one()
     image = (await session.execute(istmt)).scalar_one()
-    return round(float(video) + float(image), 4)
+    audio = (await session.execute(astmt)).scalar_one()
+    return round(float(video) + float(image) + float(audio), 4)
 
 
 async def usage(session: AsyncSession, auth: AuthCtx) -> dict:
@@ -107,23 +131,25 @@ async def usage(session: AsyncSession, auth: AuthCtx) -> dict:
     return {
         "videos_today": await _video_count(session, owner_id),
         "images_today": await _image_count(session, owner_id),
+        "audio_today": await _audio_count(session, owner_id),
         "video_cap": auth.video_cap,
         "image_cap": auth.image_cap,
+        "audio_cap": auth.audio_cap,
         "failed_today": await _failed_count(session, owner_id),
         "est_spend_usd": await _spend_usd(session, owner_id),
     }
 
 
+_CAP_BY_KIND = {"video": "video_cap", "image": "image_cap", "audio": "audio_cap"}
+
+
 async def assert_within_cap(session: AsyncSession, kind: str, n: int = 1, *, auth: AuthCtx) -> None:
-    cap = auth.video_cap if kind == "video" else auth.image_cap
+    cap = getattr(auth, _CAP_BY_KIND.get(kind, "image_cap"))
     if cap <= 0:  # 0 = unlimited (admin, or an explicitly disabled cap)
         return
     owner_id = None if auth.is_admin else auth.user_id
-    current = (
-        await _video_count(session, owner_id)
-        if kind == "video"
-        else await _image_count(session, owner_id)
-    )
+    counters = {"video": _video_count, "image": _image_count, "audio": _audio_count}
+    current = await counters.get(kind, _image_count)(session, owner_id)
     if current + n > cap:
         log.warning("cap.exceeded kind=%s current=%s cap=%s owner=%s", kind, current, cap, owner_id)
         raise CapExceeded(kind, remaining=max(0, cap - current))

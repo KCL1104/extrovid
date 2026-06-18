@@ -32,9 +32,11 @@ class Shot(SQLModel, table=True):
     # relative to the frame — checked across shots so the geometry does not flip
     screen_direction: str | None = None
     # the one spoken line delivered in this shot + who says it ('narrator' for VO) — drives
-    # captions, the performance prompt, and (later) TTS voiceover
+    # captions, the performance prompt, and TTS voiceover
     dialogue: str | None = None
     speaker: str | None = None
+    # the synthesized voiceover audio (an ImageAsset id, content_type audio/*) for this shot
+    vo_asset_id: str | None = None
     # physical camera setup index — shots sharing a camera_id are the same setup
     camera_id: int = Field(default=0)
     # keyframe contract: planned opening/closing snapshots + the motion between them

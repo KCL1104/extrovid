@@ -329,6 +329,7 @@ class ShotRead(BaseModel):
     screen_direction: str | None = None
     dialogue: str | None = None
     speaker: str | None = None
+    vo_asset_id: str | None = None  # synthesized voiceover audio for this shot
     camera_id: int = 0
     first_frame_desc: str | None = None
     last_frame_desc: str | None = None

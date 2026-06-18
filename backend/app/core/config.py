@@ -39,6 +39,17 @@ class Settings(BaseSettings):
         "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
     )
 
+    # --- Text-to-speech (DashScope qwen3-tts; voiceover per shot) ---
+    use_mock_tts: bool = True  # mock synthesizer (offline/free); deterministic MOCK_WAV
+    # NOTE: verify endpoint + response envelope + intl-region availability against a live
+    # key before flipping use_mock_tts off — qwen3-tts is a SEPARATE model family from
+    # Qwen-Image and does NOT share the image response shape.
+    qwen_tts_model: str = "qwen3-tts-flash"
+    qwen_tts_instruct_model: str = "qwen3-tts-instruct-flash"  # when a voice instruction is set
+    dashscope_tts_url: str = (
+        "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
+    )
+
     # --- AI review (ReviewAgent: scores every finished take against acceptance rules) ---
     auto_review: bool = True  # run the review automatically when a take's video lands
     review_vision: bool = True  # attach the take's poster frame (real-LLM mode only)
@@ -95,15 +106,18 @@ class Settings(BaseSettings):
     # Daily caps assigned to a newly-registered (non-admin) account.
     default_daily_video_cap: int = 3
     default_daily_image_cap: int = 20
+    default_daily_audio_cap: int = 30  # TTS voiceover lines/day (cheap, but billable)
 
     # --- Cost guardrails (legacy/global defaults; per-user caps live on the account row) ---
     daily_video_cap: int = 10
     daily_image_cap: int = 40
+    daily_audio_cap: int = 60
     # Per-job cost rates (USD) — computed from actual duration/resolution/model at creation.
     cost_per_video_sec_720p: float = 0.10
     cost_per_video_sec_1080p: float = 0.15
     cost_per_image_usd: float = 0.03
     cost_per_image_pro_usd: float = 0.07
+    cost_per_tts_usd: float = 0.02  # per synthesized voiceover line
 
     @field_validator("db_url", mode="after")
     @classmethod

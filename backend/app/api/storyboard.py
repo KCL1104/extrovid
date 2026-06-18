@@ -11,7 +11,13 @@ from app.models.concept import LookFrame
 from app.models.memory import CharacterProfile
 from app.models.shot import Shot
 from app.schemas.api import ConceptSetRead, LookFrameRead, SceneRead, ShotRead, ShotUpdate
-from app.services import asset_service, imagegen_service, planning_service, review_service
+from app.services import (
+    asset_service,
+    audio_service,
+    imagegen_service,
+    planning_service,
+    review_service,
+)
 
 router = APIRouter(
     prefix="/projects/{project_id}", tags=["reads"], dependencies=[Depends(get_owned_project)]
@@ -120,6 +126,40 @@ async def review_shot_keyframe(
     await review_service.review_keyframe(session, frame, shot, character)
     await session.commit()
     return (await asset_service.frames_to_read(session, [frame]))[0]
+
+
+@router.post("/shots/{shot_id}/voiceover", response_model=ShotRead)
+async def generate_shot_voiceover(
+    project_id: str,
+    shot_id: str,
+    auth: AuthCtx = Depends(current_auth),
+    session: AsyncSession = Depends(get_session),
+):
+    """Synthesize the shot's spoken line into a stored voiceover asset (TTS, audio-capped)."""
+    shot = await session.get(Shot, shot_id)
+    if shot is None or shot.project_id != project_id:
+        raise HTTPException(status_code=404, detail="shot not found")
+    try:
+        await audio_service.synthesize_shot_voiceover(session, project_id, shot, auth=auth)
+    except LookupError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
+    return ShotRead.model_validate(shot)
+
+
+@router.post("/storyboard/voiceovers", response_model=list[ShotRead])
+async def generate_all_voiceovers(
+    project_id: str,
+    auth: AuthCtx = Depends(current_auth),
+    session: AsyncSession = Depends(get_session),
+):
+    """Synthesize a voiceover for every shot that has a line but no audio yet (sequential)."""
+    shots = await planning_service.list_shots(session, project_id)
+    out: list[ShotRead] = []
+    for shot in shots:
+        if (shot.dialogue or "").strip() and not shot.vo_asset_id:
+            await audio_service.synthesize_shot_voiceover(session, project_id, shot, auth=auth)
+            out.append(ShotRead.model_validate(shot))
+    return out
 
 
 @router.post("/storyboard/keyframes", response_model=list[LookFrameRead])

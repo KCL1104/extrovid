@@ -20,3 +20,7 @@ def video_cost_usd(duration_sec: float, resolution: str) -> float:
 def image_cost_usd(model: str) -> float:
     s = get_settings()
     return s.cost_per_image_pro_usd if "pro" in (model or "").lower() else s.cost_per_image_usd
+
+
+def tts_cost_usd() -> float:
+    return get_settings().cost_per_tts_usd

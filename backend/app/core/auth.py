@@ -29,6 +29,7 @@ class AuthCtx:
     user_id: str | None  # user.id, or None for env-admin
     video_cap: int
     image_cap: int
+    audio_cap: int = 0  # TTS voiceover daily cap (0 = unlimited); global default for users
 
 
 def _bearer(authorization: str | None) -> str | None:
@@ -48,7 +49,9 @@ async def current_auth(
         raise HTTPException(status_code=401, detail="invalid or missing access token")
     # 1) Admin master token (env) — special-cased, no user row required.
     if settings.api_token and secrets.compare_digest(raw, settings.api_token):
-        return AuthCtx(user=None, is_admin=True, user_id=None, video_cap=0, image_cap=0)
+        return AuthCtx(
+            user=None, is_admin=True, user_id=None, video_cap=0, image_cap=0, audio_cap=0
+        )
     # 2) Per-user opaque token (indexed sha256 lookup).
     user = await auth_service.get_by_token(session, raw)
     if user is not None:
@@ -58,6 +61,8 @@ async def current_auth(
             user_id=user.id,
             video_cap=0 if user.is_admin else user.daily_video_cap,
             image_cap=0 if user.is_admin else user.daily_image_cap,
+            # per-user audio cap not yet a column; use the global default for non-admins
+            audio_cap=0 if user.is_admin else settings.default_daily_audio_cap,
         )
     log.warning("auth.denied reason=invalid")
     raise HTTPException(status_code=401, detail="invalid or missing access token")
