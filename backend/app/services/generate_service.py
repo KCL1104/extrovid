@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import event_bus
 from app.core.auth import AuthCtx
 from app.core.config import get_settings
 from app.core.logging import log
@@ -457,6 +458,11 @@ async def _activate_submission(
         await review_service.review_version_safe(session, version)
     if settings.use_mock_video:
         await maybe_autoselect_batch(session, version)
+    # live: tell subscribed workspaces a take changed state (the 5s poll is the fallback)
+    event_bus.publish(
+        project_id,
+        {"type": "job", "shot_id": shot.id, "version_id": version.id, "status": job.status},
+    )
     return version, job
 
 
@@ -767,6 +773,12 @@ async def poll_and_ingest_job(session: AsyncSession, job: GenerationJob) -> Gene
         v = await session.get(ShotVersion, job.shot_version_id)
         if v is not None:
             await maybe_autoselect_batch(session, v)
+            shot = await session.get(Shot, v.shot_id)
+            if shot is not None:
+                event_bus.publish(
+                    shot.project_id,
+                    {"type": "job", "shot_id": shot.id, "version_id": v.id, "status": job.status},
+                )
     return job
 
 

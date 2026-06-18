@@ -38,6 +38,7 @@ import {
   type ShotUpdate,
   type ShotVersion,
 } from "@/lib/api";
+import { streamSSE } from "@/lib/sse";
 import { Alert, Button, Eyebrow, Pill, Tabs } from "@/components/ui";
 import UsageBadge from "@/components/UsageBadge";
 import PlanPanel from "@/components/workspace/PlanPanel";
@@ -167,6 +168,30 @@ export default function Workspace({ projectId }: { projectId: string }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // live job-progress stream (SSE) — refetch the affected shot the instant a take changes
+  // state, instead of waiting for the next poll. Additive: the 5s poll stays the fallback.
+  useEffect(() => {
+    const ctrl = new AbortController();
+    streamSSE(`/projects/${projectId}/events`, {
+      signal: ctrl.signal,
+      onEvent: async (e) => {
+        if (e.type !== "job" || typeof e.shot_id !== "string") return;
+        const sid = e.shot_id;
+        try {
+          const vs = await listVersions(projectId, sid);
+          setVersions((v) => ({ ...v, [sid]: vs }));
+          if (vs.some(isRunning)) setGenerating((g) => (g.includes(sid) ? g : [...g, sid]));
+          loadJobs();
+        } catch {
+          /* the poll will catch up */
+        }
+      },
+    }).catch(() => {
+      /* SSE is additive; the poll remains the source of truth */
+    });
+    return () => ctrl.abort();
+  }, [projectId, loadJobs]);
 
   // poll generating shots (resilient: one failed/404 id never strands the others);
   // the interval restarts when the generating set changes, so the closure stays fresh

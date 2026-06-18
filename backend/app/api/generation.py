@@ -4,12 +4,17 @@ Also exposes the project-wide jobs queue (status / cost / retry) and the per-tak
 review — the production-management surface of the app.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+import asyncio
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_owned_project
+from app.core import event_bus
 from app.core.auth import AuthCtx, current_auth
+from app.core.config import get_settings
 from app.core.db import get_session
 from app.models.generation import GenerationJob, ShotVersion
 from app.models.shot import Shot
@@ -26,6 +31,37 @@ from app.services.asset_service import asset_url
 router = APIRouter(
     prefix="/projects/{project_id}", tags=["generation"], dependencies=[Depends(get_owned_project)]
 )
+
+
+@router.get("/events")
+async def project_events(project_id: str, request: Request):
+    """Live job-progress stream (SSE). Additive to the 5s poll, which stays the fallback.
+
+    Holds NO DB session for the stream's life — it only forwards bus events (IDs); the
+    client refetches via the normal authed endpoints. A keepalive ping every
+    ``sse_keepalive_sec`` stops the Railway proxy idle-cutting the socket."""
+    queue = event_bus.subscribe(project_id)
+    keepalive = get_settings().sse_keepalive_sec
+
+    async def gen():
+        try:
+            yield event_bus.sse({"type": "ready"})
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    ev = await asyncio.wait_for(queue.get(), timeout=keepalive)
+                    yield event_bus.sse(ev)
+                except TimeoutError:
+                    yield ":\n\n"  # comment-only keepalive frame
+        finally:
+            event_bus.unsubscribe(project_id, queue)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 async def _shot_or_404(session: AsyncSession, project_id: str, shot_id: str) -> Shot:

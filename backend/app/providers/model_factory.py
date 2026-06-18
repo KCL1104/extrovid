@@ -10,13 +10,15 @@ from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
 from pydantic_ai.providers.alibaba import AlibabaProvider
 
 from app.core.config import get_settings
-from app.providers.mock_data import dispatch_mock
+from app.providers.mock_data import dispatch_mock, dispatch_mock_stream
 
 
 def get_model() -> Model:
     settings = get_settings()
     if settings.use_mock_llm:
-        return FunctionModel(dispatch_mock)
+        # stream_function lets agent.iter()/node.stream() work in mock mode (the director
+        # SSE path); .run() still uses the non-streaming dispatch_mock.
+        return FunctionModel(dispatch_mock, stream_function=dispatch_mock_stream)
     return OpenAIChatModel(
         settings.qwen_model,
         provider=AlibabaProvider(

@@ -3,12 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Send, Wrench } from "lucide-react";
 import {
-  directorChat,
   directorTurns,
   type DirectorAction,
   type DirectorTurn,
   type ProjectState,
 } from "@/lib/api";
+import { streamSSE } from "@/lib/sse";
 import { Button, Eyebrow, Panel, Pill, Spinner, cn } from "@/components/ui";
 import { errMsg, usageChanged } from "@/components/workspace/shared";
 
@@ -31,6 +31,7 @@ export default function DirectorPanel({
   const [items, setItems] = useState<ChatItem[]>([]);
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
+  const [liveTools, setLiveTools] = useState<string[]>([]);
   const [state, setState] = useState<ProjectState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
@@ -51,31 +52,46 @@ export default function DirectorPanel({
     setMessage("");
     setError(null);
     setSending(true);
+    setLiveTools([]);
     setItems((xs) => [
       ...xs,
       { id: `local-${Date.now()}`, role: "user", content, created_at: "" },
     ]);
     try {
-      const res = await directorChat(projectId, content);
-      setItems((xs) => [
-        ...xs,
-        {
-          id: `local-${Date.now()}-a`,
-          role: "assistant",
-          content: res.reply,
-          created_at: "",
-          actions: res.actions,
+      // stream the turn: tool pills appear live as the director works, then a final reply
+      await streamSSE(`/projects/${projectId}/director/stream`, {
+        method: "POST",
+        body: { message: content },
+        onEvent: (e) => {
+          if (e.type === "tool_start" && typeof e.tool === "string") {
+            setLiveTools((t) => [...t, e.tool as string]);
+          } else if (e.type === "error") {
+            setError(String(e.message ?? "stream error"));
+          } else if (e.type === "done") {
+            const actions = (e.actions as DirectorAction[]) ?? [];
+            setItems((xs) => [
+              ...xs,
+              {
+                id: `local-${Date.now()}-a`,
+                role: "assistant",
+                content: String(e.reply ?? ""),
+                created_at: "",
+                actions,
+              },
+            ]);
+            setState((e.state as ProjectState) ?? null);
+            if (actions.length) {
+              usageChanged();
+              void onChanged(); // tools may have planned/revised/generated — refresh
+            }
+          }
         },
-      ]);
-      setState(res.state);
-      if (res.actions.length) {
-        usageChanged();
-        await onChanged(); // tools may have planned/revised/generated — refresh the workspace
-      }
+      });
     } catch (e) {
       setError(errMsg(e));
     } finally {
       setSending(false);
+      setLiveTools([]);
     }
   }
 
@@ -150,11 +166,23 @@ export default function DirectorPanel({
         ))}
         {sending && (
           <div className="flex justify-start">
-            <div className="flex items-center gap-2 rounded-[var(--radius)] border border-border bg-panel px-3.5 py-2.5">
+            <div className="flex flex-wrap items-center gap-2 rounded-[var(--radius)] border border-border bg-panel px-3.5 py-2.5">
               <Spinner className="size-3.5 text-accent" />
-              <span className="font-mono text-[0.7rem] text-faint">
-                directing — may plan, revise or render…
-              </span>
+              {liveTools.length === 0 ? (
+                <span className="font-mono text-[0.7rem] text-faint">
+                  directing — may plan, revise or render…
+                </span>
+              ) : (
+                liveTools.map((t, i) => (
+                  <span
+                    key={`${t}-${i}`}
+                    className="inline-flex items-center gap-1 rounded-full border border-border-hi bg-bg-soft px-2 py-0.5 font-mono text-[0.65rem] text-faint"
+                  >
+                    <Wrench size={10} aria-hidden className="text-accent" />
+                    {t}
+                  </span>
+                ))
+              )}
             </div>
           </div>
         )}

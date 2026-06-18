@@ -67,6 +67,7 @@ class Settings(BaseSettings):
     video_resolution: str = "720P"
     video_reconcile_interval_sec: int = 10
     video_job_timeout_sec: int = 600  # stuck RUNNING jobs older than this -> FAILED
+    sse_keepalive_sec: int = 15  # SSE idle ping so the Railway proxy doesn't cut the socket
 
     # --- HTTP resilience (provider 429/5xx retry with backoff) ---
     http_max_retries: int = 3

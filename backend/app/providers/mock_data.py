@@ -10,10 +10,12 @@ Markers the orchestrator embeds in prompts let the mock stay consistent with the
 - ``SCENE_ORDER=<int>`` — the scene a visual plan belongs to (scene_order match)
 """
 
+import json
 import re
+from collections.abc import AsyncIterator
 
-from pydantic_ai.messages import ModelResponse, ToolCallPart
-from pydantic_ai.models.function import AgentInfo
+from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
+from pydantic_ai.models.function import AgentInfo, DeltaToolCall, DeltaToolCalls
 
 from app.models.enums import (
     MIN_CONCEPT_FRAMES,
@@ -396,3 +398,30 @@ def dispatch_mock(messages, info: AgentInfo) -> ModelResponse:
         raise ValueError(f"mock has no canned data for output schema with props {sorted(props)}")
 
     return ModelResponse(parts=[ToolCallPart(tool_name=tool.name, args=args)])
+
+
+async def dispatch_mock_stream(
+    messages, info: AgentInfo
+) -> AsyncIterator[str | DeltaToolCalls]:
+    """Streaming variant of ``dispatch_mock`` — lets ``agent.iter()``/``node.stream()`` work
+    in mock mode (the director SSE path). Replays the non-streaming response as deltas: text
+    for a plain reply (the director), or a single tool-call delta for structured agents.
+
+    NOTE: in mock mode the DirectorAgent returns plain text and calls NO tools, so a mock
+    director stream emits a final reply but no tool events — tool-event coverage uses a
+    hand-scripted FunctionModel in the tests, not this.
+    """
+    resp = dispatch_mock(messages, info)
+    text = "".join(p.content for p in resp.parts if isinstance(p, TextPart))
+    if text:
+        yield text
+        return
+    deltas: dict[int, DeltaToolCall] = {}
+    for i, part in enumerate(resp.parts):
+        if isinstance(part, ToolCallPart):
+            args = part.args if isinstance(part.args, str) else json.dumps(part.args)
+            deltas[i] = DeltaToolCall(
+                name=part.tool_name, json_args=args, tool_call_id=part.tool_call_id
+            )
+    if deltas:
+        yield deltas
