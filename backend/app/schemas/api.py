@@ -332,6 +332,7 @@ class ShotRead(BaseModel):
     motion_desc: str | None = None
     variation_type: str = "small"
     keyframe_frame_id: str | None = None
+    last_keyframe_frame_id: str | None = None  # planned closing keyframe (continuity seed)
     keyframe_verdict: str | None = None  # keyframe gate verdict: "pass" | "revise" | None
     keyframe_score: float | None = None  # keyframe gate score 0-10
     stale: bool = False  # an upstream artifact changed after this was planned

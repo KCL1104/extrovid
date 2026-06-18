@@ -145,16 +145,47 @@ async def _resolve_reference_urls(
     return urls
 
 
-async def _continuation_frame_asset_id(
+async def _previous_shot(session: AsyncSession, project_id: str, shot: Shot) -> Shot | None:
+    """The shot immediately before this one by global order (regardless of render state)."""
+    return (
+        (
+            await session.execute(
+                select(Shot)
+                .where(Shot.project_id == project_id, Shot.order < shot.order)
+                .order_by(Shot.order.desc())
+            )
+        )
+        .scalars()
+        .first()
+    )
+
+
+async def _continuation_seed(
     session: AsyncSession, project_id: str, shot: Shot
 ) -> tuple[str, str]:
-    """Extract the previous take's last frame as a stored image asset (the i2v/r2v seed).
+    """The first-frame seed for a continuation shot. Returns (asset_id, note).
 
-    Returns (asset_id, note). Raises LookupError when there is nothing to continue from.
+    Prefers the PREVIOUS shot's planned closing keyframe — image-level chaining that needs
+    no rendered video, parallelizes, and does not compound drift. Falls back to extracting
+    the previous take's rendered last frame only when no closing keyframe exists. Raises
+    LookupError when there is nothing to continue from.
     """
+    prev = await _previous_shot(session, project_id, shot)
+    if prev is None:
+        raise LookupError("no previous shot to continue from")
+
+    # 1. planned closing keyframe (preferred — drift-free, no render dependency)
+    if prev.last_keyframe_frame_id:
+        lf = await session.get(LookFrame, prev.last_keyframe_frame_id)
+        if lf and lf.image_asset_id:
+            return lf.image_asset_id, f"continues from shot #{prev.order}'s planned last keyframe"
+
+    # 2. fall back to the previous take's rendered last frame
     found = await review_service.previous_shot_take(session, project_id, shot)
     if found is None:
-        raise LookupError("no finished take on a previous shot to continue from")
+        raise LookupError(
+            "previous shot has no closing keyframe or finished take to continue from"
+        )
     prev_shot, prev_version = found
     settings = get_settings()
     src_asset = await session.get(ImageAsset, prev_version.output_asset_id)
@@ -179,6 +210,19 @@ async def _continuation_frame_asset_id(
         use_mock=settings.use_mock_video,
     )
     return asset.id, f"continues from shot #{prev_shot.order}'s last frame"
+
+
+async def _continuation_ready(session: AsyncSession, project_id: str, shot: Shot) -> bool:
+    """Can this shot's continuation seed be resolved now? True if the previous shot has a
+    planned closing keyframe (no render needed) OR a finished take to extract from."""
+    prev = await _previous_shot(session, project_id, shot)
+    if prev is None:
+        return False
+    if prev.last_keyframe_frame_id:
+        lf = await session.get(LookFrame, prev.last_keyframe_frame_id)
+        if lf and lf.image_asset_id:
+            return True
+    return await review_service.previous_shot_take(session, project_id, shot) is not None
 
 
 async def _ingest_video_bytes(
@@ -305,7 +349,7 @@ async def _activate_submission(
     continuation_note: str | None = None
     if continue_from_previous and first_frame_asset_id is None:
         # the seed composes with references too: r2v accepts a first_frame alongside refs
-        first_frame_asset_id, continuation_note = await _continuation_frame_asset_id(
+        first_frame_asset_id, continuation_note = await _continuation_seed(
             session, project_id, shot
         )
     if first_frame_asset_id is None and shot.keyframe_frame_id:
@@ -491,7 +535,9 @@ async def submit_scene_batch(
             # nothing to continue from — the chain's anchor renders directly
             out.append(await submit_shot(session, project_id, shot, auth=auth))
             continue
-        ready = await review_service.previous_shot_take(session, project_id, shot) is not None
+        # a planned closing keyframe lets the shot render NOW (no wait on the upstream take);
+        # otherwise it defers until the previous take lands and its last frame can be read
+        ready = await _continuation_ready(session, project_id, shot)
         out.append(
             await submit_shot(
                 session,

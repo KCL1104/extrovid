@@ -179,25 +179,28 @@ def compose_keyframe_prompt(
     visual_brief: dict | None = None,
     style_pack: StylePack | None = None,
     character: CharacterProfile | None = None,
+    kind: str = "first",
 ) -> str:
-    """Image prompt for the shot's opening keyframe — a pure static snapshot.
+    """Image prompt for a shot keyframe — a pure static snapshot.
 
-    Identity and composition resolve in the image domain (cheap, retryable) before any
-    video is rendered; the video model then only animates from this anchor.
+    ``kind="first"`` renders the opening frame; ``kind="last"`` renders the planned closing
+    frame (``last_frame_desc``) used as the NEXT shot's continuity seed. Identity and
+    composition resolve in the image domain (cheap, retryable) before any video is rendered;
+    the video model then only animates from this anchor.
     """
     cam = shot.camera_spec or {}
     perf = shot.performance_spec or {}
     vb = visual_brief or {}
+    desc = (shot.last_frame_desc if kind == "last" else shot.first_frame_desc) or ""
 
     parts: list[str] = []
-    if shot.first_frame_desc and shot.first_frame_desc.strip():
-        parts.append(shot.first_frame_desc.strip())
+    if desc.strip():
+        parts.append(desc.strip())
     else:
         subject = perf.get("subject", "")
-        parts.append(
-            f"the opening frame of a shot: {subject} in place, frozen at the moment "
-            "the shot begins"
-        )
+        moment = "the closing frame" if kind == "last" else "the opening frame"
+        edge = "the shot ends" if kind == "last" else "the shot begins"
+        parts.append(f"{moment} of a shot: {subject} in place, frozen at the moment {edge}")
         if shot.framing:
             parts.append(f"framing: {shot.framing}")
     if character:

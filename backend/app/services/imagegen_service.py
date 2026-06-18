@@ -99,11 +99,14 @@ async def generate_shot_keyframe(
     shot: Shot,
     *,
     auth: AuthCtx,
+    kind: str = "first",
 ) -> LookFrame:
-    """Generate the shot's opening keyframe as an image and point the shot at it.
+    """Generate a shot keyframe as an image and point the shot at it.
 
-    With a cast lock + portrait sheet, the keyframe is an identity-preserving EDIT of
-    the front portrait (ViMax's base-portrait -> scene-variant move); otherwise plain
+    ``kind="first"`` is the opening seed (gated by the keyframe review); ``kind="last"`` is
+    the planned CLOSING frame used as the next shot's continuity seed (no gate — it's a
+    seed, and the resulting take is reviewed). With a cast lock + portrait sheet, the
+    keyframe is an identity-preserving EDIT of the view-matched portrait; otherwise plain
     text->image. The result is a LookFrame, so the /refine loop works on it for free.
     """
     project = await session.get(Project, project_id)
@@ -133,7 +136,7 @@ async def generate_shot_keyframe(
             character = None
 
     prompt = compose_keyframe_prompt(
-        shot, visual_brief=visual_brief, style_pack=style_pack, character=character
+        shot, visual_brief=visual_brief, style_pack=style_pack, character=character, kind=kind
     )
     negative = compose_negative_prompt(
         visual_brief=visual_brief, style_pack=style_pack, character=character
@@ -160,16 +163,20 @@ async def generate_shot_keyframe(
         prompt=prompt,
         source_model=result.source_model,
         image_asset_id=asset.id,
-        tags=["keyframe", f"shot-{shot.order}"],
+        tags=["keyframe", kind, f"shot-{shot.order}"],
     )
     session.add(frame)
     await session.flush()
-    shot.keyframe_frame_id = frame.id
+    if kind == "last":
+        shot.last_keyframe_frame_id = frame.id
+    else:
+        shot.keyframe_frame_id = frame.id
     session.add(shot)
     await session.commit()
     await session.refresh(frame)
-    # gate the keyframe before any video budget is spent: identity/composition/view verdict
-    if get_settings().auto_review:
+    # gate the OPENING keyframe before any video budget is spent (identity/composition/view);
+    # the closing keyframe is a continuity seed — the take it produces is reviewed instead
+    if kind == "first" and get_settings().auto_review:
         await review_service.review_keyframe_safe(session, frame, shot, character)
     return frame
 

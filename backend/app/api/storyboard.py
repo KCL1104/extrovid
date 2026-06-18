@@ -128,12 +128,21 @@ async def generate_all_keyframes(
     auth: AuthCtx = Depends(current_auth),
     session: AsyncSession = Depends(get_session),
 ):
-    """Generate keyframes for every shot that doesn't have one yet (sequential)."""
+    """Generate missing keyframes (sequential): an opening keyframe for every shot, plus a
+    closing keyframe for every shot that has a successor (its continuity seed for chaining)."""
     shots = await planning_service.list_shots(session, project_id)
-    todo = [s for s in shots if not s.keyframe_frame_id]
+    max_order = max((s.order for s in shots), default=-1)
     frames = []
-    for shot in todo:
-        frames.append(
-            await imagegen_service.generate_shot_keyframe(session, project_id, shot, auth=auth)
-        )
+    for shot in shots:
+        if not shot.keyframe_frame_id:
+            frames.append(
+                await imagegen_service.generate_shot_keyframe(session, project_id, shot, auth=auth)
+            )
+        # only shots something continues FROM need a closing keyframe (skip the final shot)
+        if shot.order < max_order and shot.last_frame_desc and not shot.last_keyframe_frame_id:
+            frames.append(
+                await imagegen_service.generate_shot_keyframe(
+                    session, project_id, shot, auth=auth, kind="last"
+                )
+            )
     return await asset_service.frames_to_read(session, frames)

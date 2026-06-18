@@ -126,6 +126,7 @@ export type Shot = {
   motion_desc?: string | null;
   variation_type?: string;
   keyframe_frame_id?: string | null; // generated keyframe image (i2v/r2v seed)
+  last_keyframe_frame_id?: string | null; // planned closing keyframe (next shot's seed)
   keyframe_verdict?: string | null; // keyframe gate: "pass" | "revise" | null
   keyframe_score?: number | null; // keyframe gate score 0-10
   stale?: boolean; // an upstream artifact changed after this was planned

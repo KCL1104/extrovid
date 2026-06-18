@@ -125,10 +125,47 @@ async def test_keyframe_endpoint_generates_and_routes(client):
 async def test_generate_all_keyframes_skips_existing(client):
     pid, shots = await _project(client)
     sid = shots[0]["id"]
-    await client.post(f"/api/projects/{pid}/shots/{sid}/keyframe")
+    kf = (await client.post(f"/api/projects/{pid}/shots/{sid}/keyframe")).json()
     r = await client.post(f"/api/projects/{pid}/storyboard/keyframes")
     assert r.status_code == 200
-    assert len(r.json()) == len(shots) - 1  # the one with a keyframe was skipped
+    after = (await client.get(f"/api/projects/{pid}/storyboard")).json()
+    # every shot now has an opening keyframe; the pre-generated one was NOT regenerated
+    assert all(s["keyframe_frame_id"] for s in after)
+    assert next(s for s in after if s["id"] == sid)["keyframe_frame_id"] == kf["id"]
+    # every non-final shot also got a closing keyframe (the continuity seed for chaining)
+    final = max(s["order"] for s in after)
+    assert all(s["last_keyframe_frame_id"] for s in after if s["order"] < final)
+
+
+def test_last_keyframe_prompt_uses_the_closing_frame():
+    shot = Shot(
+        project_id="p",
+        order=0,
+        scene_order=0,
+        purpose="reveal",
+        duration_sec=4,
+        beat="b",
+        first_frame_desc="the watch rests on dark slate, crown facing camera",
+        last_frame_desc="the watch face fills the frame, dial readable",
+    )
+    p = compose_keyframe_prompt(shot, kind="last")
+    assert "the watch face fills the frame" in p
+    assert "the watch rests on dark slate" not in p  # closing desc, not opening
+    assert "no motion blur" in p
+
+
+async def test_continuation_prefers_planned_last_keyframe(client):
+    pid, shots = await _project(client)
+    await client.post(f"/api/projects/{pid}/storyboard/keyframes")  # opening + closing frames
+    # shot 1 continues from shot 0 seeded by shot 0's PLANNED closing keyframe — no render needed
+    v = (
+        await client.post(
+            f"/api/projects/{pid}/shots/{shots[1]['id']}/generate",
+            json={"continue_from_previous": True},
+        )
+    ).json()
+    assert "planned last keyframe" in v["routing_note"]
+    assert v["model"].endswith("i2v")
 
 
 async def test_keyframe_carries_a_gate_verdict(client):
