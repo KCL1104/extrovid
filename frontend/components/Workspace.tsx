@@ -59,6 +59,19 @@ import {
 type TabId = "plan" | "look" | "cast" | "shots" | "cut" | "queue" | "director";
 const TAB_ORDER: TabId[] = ["plan", "look", "cast", "shots", "cut", "queue", "director"];
 
+/** lg+ viewport — drives whether the shot inspector docks as a pane or opens as a drawer. */
+function useIsDesktop() {
+  const [desktop, setDesktop] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const sync = () => setDesktop(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+  return desktop;
+}
+
 export default function Workspace({ projectId }: { projectId: string }) {
   const [project, setProject] = useState<Project | null>(null);
   const [scenes, setScenes] = useState<Scene[]>([]);
@@ -79,6 +92,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
   const [announce, setAnnounce] = useState("");
 
   const aspect = project?.aspect_ratio ?? "9:16";
+  const isDesktop = useIsDesktop();
   const readyRef = useRef<Set<string>>(new Set());
   const tabInitRef = useRef(false);
 
@@ -401,6 +415,26 @@ export default function Workspace({ projectId }: { projectId: string }) {
     return !!prev && isRendered(versions[prev.id] ?? []);
   })();
 
+  const inspectorEl = inspectedShot ? (
+    <ShotInspector
+      docked={isDesktop}
+      key={inspectedShot.id}
+      shot={inspectedShot}
+      versions={versions[inspectedShot.id] ?? []}
+      characters={characters}
+      aspect={aspect}
+      canContinue={canContinue}
+      busy={!!busy[inspectedShot.id] || generating.includes(inspectedShot.id)}
+      onClose={() => setInspected(null)}
+      onGenerate={(opts) => genShot(inspectedShot.id, opts)}
+      onEdit={(versionId, instruction) => genEdit(inspectedShot.id, versionId, instruction)}
+      onPick={(versionId) => pickVersion(inspectedShot.id, versionId)}
+      onReview={(versionId) => reviewNow(inspectedShot.id, versionId)}
+      onUpdate={(patch) => patchShot(inspectedShot.id, patch)}
+      onKeyframe={() => genKeyframe(inspectedShot.id)}
+    />
+  ) : null;
+
   // initial load / fatal error states
   if (loading && !project) {
     return (
@@ -430,7 +464,9 @@ export default function Workspace({ projectId }: { projectId: string }) {
   }
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
+    <div className="flex">
+      <main className="min-w-0 flex-1 px-4 py-8 sm:px-6 sm:py-10">
+        <div className="mx-auto max-w-6xl">
       <div aria-live="polite" className="sr-only">
         {announce}
       </div>
@@ -593,24 +629,17 @@ export default function Workspace({ projectId }: { projectId: string }) {
         {tab === "director" && <DirectorPanel projectId={projectId} onChanged={loadAll} />}
       </div>
 
-      {inspectedShot && (
-        <ShotInspector
-          key={inspectedShot.id}
-          shot={inspectedShot}
-          versions={versions[inspectedShot.id] ?? []}
-          characters={characters}
-          aspect={aspect}
-          canContinue={canContinue}
-          busy={!!busy[inspectedShot.id] || generating.includes(inspectedShot.id)}
-          onClose={() => setInspected(null)}
-          onGenerate={(opts) => genShot(inspectedShot.id, opts)}
-          onEdit={(versionId, instruction) => genEdit(inspectedShot.id, versionId, instruction)}
-          onPick={(versionId) => pickVersion(inspectedShot.id, versionId)}
-          onReview={(versionId) => reviewNow(inspectedShot.id, versionId)}
-          onUpdate={(patch) => patchShot(inspectedShot.id, patch)}
-          onKeyframe={() => genKeyframe(inspectedShot.id)}
-        />
-      )}
-    </main>
+        </div>
+      </main>
+      {/* desktop: the inspector docks as a persistent third pane; smaller screens: modal drawer */}
+      {inspectedShot &&
+        (isDesktop ? (
+          <aside className="sticky top-0 h-screen w-[24rem] shrink-0 overflow-hidden border-l border-border bg-bg xl:w-[28rem]">
+            {inspectorEl}
+          </aside>
+        ) : (
+          inspectorEl
+        ))}
+    </div>
   );
 }

@@ -56,6 +56,7 @@ export default function ShotInspector({
   aspect,
   canContinue,
   busy,
+  docked = false,
   onClose,
   onGenerate,
   onEdit,
@@ -70,6 +71,7 @@ export default function ShotInspector({
   aspect: string;
   canContinue: boolean;
   busy: boolean;
+  docked?: boolean; // true: render as a persistent right pane; false: modal drawer (mobile)
   onClose: () => void;
   onGenerate: (opts?: {
     character_id?: string;
@@ -233,8 +235,8 @@ export default function ShotInspector({
     }
   }
 
-  return (
-    <Drawer open onClose={onClose} label={`Shot ${shot.order + 1} inspector`}>
+  const content = (
+    <>
       {/* header */}
       <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
         <div className="min-w-0">
@@ -795,6 +797,24 @@ export default function ShotInspector({
           </div>
         )}
       </div>
+    </>
+  );
+
+  // docked: a persistent right pane (the workstation's third column). Otherwise a modal
+  // drawer — the mobile fallback where a side-by-side split would be too narrow.
+  if (docked) {
+    return (
+      <section
+        aria-label={`Shot ${shot.order + 1} inspector`}
+        className="flex h-full min-h-0 flex-col bg-bg"
+      >
+        {content}
+      </section>
+    );
+  }
+  return (
+    <Drawer open onClose={onClose} label={`Shot ${shot.order + 1} inspector`}>
+      {content}
     </Drawer>
   );
 }
