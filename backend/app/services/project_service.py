@@ -112,13 +112,12 @@ async def update_project(session: AsyncSession, project: Project, data: ProjectU
 
 async def delete_project(session: AsyncSession, project: Project) -> None:
     pid = project.id
-    # remove dependent rows first (no DB-level cascade configured). LookFrame.project_id FKs
-    # the project, so delete ALL of them by project_id — concept-set frames AND keyframes
-    # (which have concept_set_id=None) — not just the concept-set-scoped ones, or the
-    # keyframe rows orphan and the project delete violates lookframe_project_id_fkey.
-    await session.execute(delete(LookFrame).where(LookFrame.project_id == pid))
-    await session.execute(delete(VisualConceptSet).where(VisualConceptSet.project_id == pid))
-    # ShotVersion/GenerationJob FK to shot/shotversion — clear them before shots.
+    # Remove dependent rows CHILD-FIRST (no DB-level cascade configured). Order matters —
+    # the FK chain is: GenerationJob -> ShotVersion -> Shot; Shot -> LookFrame (via
+    # keyframe_frame_id/last_keyframe_frame_id), Scene, CharacterProfile; LookFrame ->
+    # VisualConceptSet -> Scene. So shots must go BEFORE look frames, and look frames
+    # before concept sets and scenes, or Postgres FKs (shot_keyframe_frame_id_fkey,
+    # lookframe_project_id_fkey, …) reject the delete.
     shot_ids = (
         (await session.execute(select(Shot.id).where(Shot.project_id == pid))).scalars().all()
     )
@@ -134,6 +133,10 @@ async def delete_project(session: AsyncSession, project: Project) -> None:
             )
         await session.execute(delete(ShotVersion).where(ShotVersion.shot_id.in_(shot_ids)))
     await session.execute(delete(Shot).where(Shot.project_id == pid))
+    # ALL look frames by project_id (concept-set frames AND keyframes, concept_set_id=None),
+    # now that no shot references them.
+    await session.execute(delete(LookFrame).where(LookFrame.project_id == pid))
+    await session.execute(delete(VisualConceptSet).where(VisualConceptSet.project_id == pid))
     await session.execute(delete(Scene).where(Scene.project_id == pid))
     await session.execute(delete(Brief).where(Brief.project_id == pid))
     await session.execute(delete(TimelineSequence).where(TimelineSequence.project_id == pid))
