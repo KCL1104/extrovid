@@ -82,6 +82,14 @@ async def stats_for(session: AsyncSession, project_ids: list[str]) -> dict[str, 
         .group_by(TimelineSequence.project_id)
     ):
         stats[pid].cuts = n
+    # mean AI dailies score across scored takes — a quick triage signal on the dashboard
+    for pid, avg in await session.execute(
+        select(Shot.project_id, func.avg(ShotVersion.score))
+        .join(ShotVersion, ShotVersion.shot_id == Shot.id)
+        .where(Shot.project_id.in_(project_ids), ShotVersion.score.is_not(None))
+        .group_by(Shot.project_id)
+    ):
+        stats[pid].avg_score = round(float(avg), 1) if avg is not None else None
     return stats
 
 

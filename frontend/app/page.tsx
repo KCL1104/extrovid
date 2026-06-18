@@ -4,9 +4,10 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createProject, deleteProject, listProjects, type Project } from "@/lib/api";
-import { Alert, Button, Eyebrow, Panel, Pill, StatusBadge } from "@/components/ui";
+import { Alert, Button, Eyebrow, Panel, Pill, ScoreBadge, StatusBadge, cn } from "@/components/ui";
 import Shell from "@/components/Shell";
 import { PROJECTS_CHANGED } from "@/components/Sidebar";
+import { relTime } from "@/components/workspace/shared";
 import UsageBadge from "@/components/UsageBadge";
 
 const ASPECTS = ["9:16", "16:9", "1:1", "4:5"];
@@ -22,7 +23,12 @@ export default function Dashboard() {
   const [duration, setDuration] = useState(20);
   const [creating, setCreating] = useState(false);
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState("all");
   const router = useRouter();
+
+  const statuses = projects ? [...new Set(projects.map((p) => p.status))] : [];
+  const filtered =
+    projects?.filter((p) => statusFilter === "all" || p.status === statusFilter) ?? null;
 
   const load = () =>
     listProjects()
@@ -135,6 +141,26 @@ export default function Dashboard() {
 
         <section className="mt-10">
           <Eyebrow>Projects {projects ? `· ${projects.length}` : ""}</Eyebrow>
+          {projects && projects.length > 0 && statuses.length > 1 && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {["all", ...statuses].map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setStatusFilter(s)}
+                  aria-pressed={statusFilter === s}
+                  className={cn(
+                    "min-h-8 rounded-full border px-2.5 font-mono text-[0.65rem] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                    statusFilter === s
+                      ? "border-accent text-accent"
+                      : "border-border text-faint hover:text-fg",
+                  )}
+                >
+                  {s}
+                  {s !== "all" ? ` · ${projects.filter((p) => p.status === s).length}` : ""}
+                </button>
+              ))}
+            </div>
+          )}
           {projects === null ? (
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               {[0, 1].map((i) => (
@@ -143,9 +169,11 @@ export default function Dashboard() {
             </div>
           ) : projects.length === 0 ? (
             <p className="mt-4 text-faint">No projects yet — create one above.</p>
+          ) : filtered && filtered.length === 0 ? (
+            <p className="mt-4 text-faint">No {statusFilter} projects.</p>
           ) : (
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              {projects.map((p, i) => (
+              {(filtered ?? []).map((p, i) => (
                 <Link
                   key={p.id}
                   href={`/projects/${p.id}`}
@@ -195,6 +223,10 @@ export default function Dashboard() {
                       <StatusBadge status={p.status} />
                       <Pill>{p.aspect_ratio}</Pill>
                       <Pill>{p.target_duration_sec}s</Pill>
+                      {p.stats?.avg_score != null && <ScoreBadge score={p.stats.avg_score} />}
+                      <span className="ml-auto font-mono text-[0.6rem] text-faint">
+                        {relTime(p.created_at)}
+                      </span>
                     </div>
                     {p.stats && p.stats.shots > 0 && (
                       <div className="mt-3 border-t border-border pt-3">

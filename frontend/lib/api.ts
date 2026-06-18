@@ -44,6 +44,7 @@ export type ProjectStats = {
   shots: number;
   rendered_shots: number;
   cuts: number;
+  avg_score?: number | null; // mean AI dailies score across scored takes
 };
 
 export type Project = {

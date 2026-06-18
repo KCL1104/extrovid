@@ -35,6 +35,16 @@ async def test_review_unknown_version_404(client):
     assert r.status_code == 404
 
 
+async def test_project_stats_carry_avg_dailies_score(client):
+    """The dashboard triage badge: mean AI score across scored takes."""
+    pid, shot_ids = await _project_with_storyboard(client)
+    await client.post(f"/api/projects/{pid}/shots/{shot_ids[0]}/generate")
+    projects = (await client.get("/api/projects")).json()
+    p = next(x for x in projects if x["id"] == pid)
+    assert p["stats"]["avg_score"] is not None
+    assert 0 <= p["stats"]["avg_score"] <= 10
+
+
 async def test_routing_note_recorded(client):
     pid, shot_ids = await _project_with_storyboard(client)
     v = (await client.post(f"/api/projects/{pid}/shots/{shot_ids[0]}/generate")).json()

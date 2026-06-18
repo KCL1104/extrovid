@@ -63,6 +63,7 @@ class ProjectStats(BaseModel):
     shots: int = 0
     rendered_shots: int = 0
     cuts: int = 0
+    avg_score: float | None = None  # mean AI dailies score across scored takes (triage signal)
 
 
 class ProjectRead(BaseModel):

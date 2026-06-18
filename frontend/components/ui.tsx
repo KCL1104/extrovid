@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Fragment,
   useEffect,
   useRef,
   type ButtonHTMLAttributes,
@@ -167,47 +168,79 @@ export function Toggle({
   );
 }
 
+export type TabItem = {
+  id: string;
+  label: string;
+  meta?: ReactNode;
+  live?: boolean;
+  done?: boolean; // pipeline step has produced output → shows a ✓
+  locked?: boolean; // prerequisite unmet → dimmed, not selectable
+  divider?: boolean; // render a separator before this tab (utilities vs. pipeline steps)
+};
+
 export function Tabs({
   tabs,
   active,
   onSelect,
 }: {
-  tabs: { id: string; label: string; meta?: ReactNode; live?: boolean }[];
+  tabs: TabItem[];
   active: string;
   onSelect: (id: string) => void;
 }) {
+  // arrow-nav and selection skip locked steps
+  const open = tabs.filter((t) => !t.locked);
+  const move = (dir: 1 | -1) => {
+    if (!open.length) return;
+    const idx = open.findIndex((t) => t.id === active);
+    const next = open[(Math.max(0, idx) + dir + open.length) % open.length];
+    if (next) onSelect(next.id);
+  };
   return (
     <div role="tablist" aria-label="Workspace sections" className="flex gap-1 overflow-x-auto">
-      {tabs.map((t, i) => {
+      {tabs.map((t) => {
         const on = t.id === active;
         return (
-          <button
-            key={t.id}
-            role="tab"
-            aria-selected={on}
-            tabIndex={on ? 0 : -1}
-            onClick={() => onSelect(t.id)}
-            onKeyDown={(e) => {
-              if (e.key === "ArrowRight") onSelect(tabs[(i + 1) % tabs.length].id);
-              if (e.key === "ArrowLeft") onSelect(tabs[(i - 1 + tabs.length) % tabs.length].id);
-            }}
-            className={cn(
-              "relative flex min-h-10 shrink-0 items-center gap-2 rounded-[var(--radius)] px-3.5 py-2 font-mono text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
-              on ? "bg-panel-hi text-accent" : "text-muted hover:bg-panel-hi/60 hover:text-fg",
+          <Fragment key={t.id}>
+            {t.divider && (
+              <span className="mx-1 my-2 w-px shrink-0 self-stretch bg-border" aria-hidden />
             )}
-          >
-            {t.label}
-            {t.meta != null && (
-              <span className={cn("text-[0.65rem]", on ? "text-fg" : "text-faint")}>{t.meta}</span>
-            )}
-            {t.live && <span className="size-1.5 rounded-full bg-run pulse-dot" aria-hidden />}
-            {on && (
-              <span
-                aria-hidden
-                className="absolute inset-x-3 -bottom-px h-px bg-gradient-to-r from-transparent via-accent to-transparent"
-              />
-            )}
-          </button>
+            <button
+              role="tab"
+              aria-selected={on}
+              aria-disabled={t.locked || undefined}
+              tabIndex={on ? 0 : -1}
+              onClick={() => !t.locked && onSelect(t.id)}
+              onKeyDown={(e) => {
+                if (e.key === "ArrowRight") move(1);
+                if (e.key === "ArrowLeft") move(-1);
+              }}
+              className={cn(
+                "relative flex min-h-10 shrink-0 items-center gap-2 rounded-[var(--radius)] px-3.5 py-2 font-mono text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                t.locked
+                  ? "cursor-not-allowed text-faint/50"
+                  : on
+                    ? "bg-panel-hi text-accent"
+                    : "text-muted hover:bg-panel-hi/60 hover:text-fg",
+              )}
+            >
+              {t.label}
+              {t.done && !on && (
+                <span className="text-[0.7rem] text-ok" aria-label="complete">
+                  ✓
+                </span>
+              )}
+              {t.meta != null && (
+                <span className={cn("text-[0.65rem]", on ? "text-fg" : "text-faint")}>{t.meta}</span>
+              )}
+              {t.live && <span className="size-1.5 rounded-full bg-run pulse-dot" aria-hidden />}
+              {on && (
+                <span
+                  aria-hidden
+                  className="absolute inset-x-3 -bottom-px h-px bg-gradient-to-r from-transparent via-accent to-transparent"
+                />
+              )}
+            </button>
+          </Fragment>
         );
       })}
     </div>

@@ -481,24 +481,46 @@ export default function Workspace({ projectId }: { projectId: string }) {
           active={tab}
           onSelect={(id) => setTab(id as TabId)}
           tabs={[
-            { id: "plan", label: "Plan", meta: scenes.length ? `${scenes.length} sc` : undefined },
+            {
+              id: "plan",
+              label: "Plan",
+              meta: scenes.length ? `${scenes.length} sc` : undefined,
+              done: scenes.length > 0,
+            },
             {
               id: "look",
               label: "Look",
               meta: conceptSets.length ? `${generatedSets}/${conceptSets.length}` : undefined,
+              done: generatedSets > 0,
+              locked: scenes.length === 0,
             },
-            { id: "cast", label: "Cast", meta: characters.length || undefined },
+            {
+              id: "cast",
+              label: "Cast",
+              meta: characters.length || undefined,
+              done: characters.length > 0,
+              locked: scenes.length === 0,
+            },
             {
               id: "shots",
               label: "Storyboard",
               meta: shots.length ? `${renderedShots}/${shots.length}` : undefined,
+              done: renderedShots > 0,
+              locked: shots.length === 0,
             },
-            { id: "cut", label: "Cut", meta: roughCuts.length || undefined },
+            {
+              id: "cut",
+              label: "Cut",
+              meta: roughCuts.length || undefined,
+              done: roughCuts.length > 0,
+              locked: renderedShots === 0,
+            },
             {
               id: "queue",
               label: "Queue",
               meta: jobs.length || undefined,
               live: runningJobs > 0,
+              divider: true,
             },
             { id: "director", label: "Director" },
           ]}
