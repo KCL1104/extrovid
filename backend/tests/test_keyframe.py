@@ -210,6 +210,19 @@ async def test_keyframe_review_404_without_keyframe(client):
     assert r.status_code == 404
 
 
+async def test_delete_project_with_keyframe(client):
+    """delete_project must remove keyframe LookFrames (concept_set_id=None) — else they
+    orphan and the project delete violates lookframe_project_id_fkey on Postgres (the prod
+    bug). Regression."""
+    pid, shots = await _project(client)
+    await client.post(f"/api/projects/{pid}/shots/{shots[0]['id']}/keyframe")
+    # a DirectorTurn row, to cover that FK path too
+    await client.post(f"/api/projects/{pid}/director", json={"message": "status?"})
+    r = await client.delete(f"/api/projects/{pid}")
+    assert r.status_code == 204
+    assert (await client.get(f"/api/projects/{pid}")).status_code == 404
+
+
 async def test_explicit_first_frame_beats_keyframe(client):
     pid, shots = await _project(client)
     sid = shots[0]["id"]

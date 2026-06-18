@@ -5,11 +5,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.asset import ImageAsset
 from app.models.concept import LookFrame, VisualConceptSet
+from app.models.director import DirectorTurn
 from app.models.generation import GenerationJob, ShotVersion
 from app.models.memory import CharacterProfile, StylePack
 from app.models.project import Brief, Project
 from app.models.scene import Scene
 from app.models.shot import Shot
+from app.models.source import SourceEvent
 from app.models.timeline import TimelineSequence
 from app.schemas.api import ProjectCreate, ProjectStats, ProjectUpdate
 from app.services import asset_service
@@ -110,18 +112,11 @@ async def update_project(session: AsyncSession, project: Project, data: ProjectU
 
 async def delete_project(session: AsyncSession, project: Project) -> None:
     pid = project.id
-    # remove dependent rows first (no DB-level cascade configured)
-    cs_ids = (
-        (
-            await session.execute(
-                select(VisualConceptSet.id).where(VisualConceptSet.project_id == pid)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    if cs_ids:
-        await session.execute(delete(LookFrame).where(LookFrame.concept_set_id.in_(cs_ids)))
+    # remove dependent rows first (no DB-level cascade configured). LookFrame.project_id FKs
+    # the project, so delete ALL of them by project_id — concept-set frames AND keyframes
+    # (which have concept_set_id=None) — not just the concept-set-scoped ones, or the
+    # keyframe rows orphan and the project delete violates lookframe_project_id_fkey.
+    await session.execute(delete(LookFrame).where(LookFrame.project_id == pid))
     await session.execute(delete(VisualConceptSet).where(VisualConceptSet.project_id == pid))
     # ShotVersion/GenerationJob FK to shot/shotversion — clear them before shots.
     shot_ids = (
@@ -144,6 +139,9 @@ async def delete_project(session: AsyncSession, project: Project) -> None:
     await session.execute(delete(TimelineSequence).where(TimelineSequence.project_id == pid))
     await session.execute(delete(CharacterProfile).where(CharacterProfile.project_id == pid))
     await session.execute(delete(StylePack).where(StylePack.project_id == pid))
+    # these also FK the project (long-source import + director chat history)
+    await session.execute(delete(SourceEvent).where(SourceEvent.project_id == pid))
+    await session.execute(delete(DirectorTurn).where(DirectorTurn.project_id == pid))
     # capture object keys before clearing rows, so we can clean the bucket after commit
     keys = (
         (await session.execute(select(ImageAsset.bucket_key).where(ImageAsset.project_id == pid)))
