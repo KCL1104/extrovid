@@ -269,6 +269,9 @@ def _mock_shot(i: int, scene_order: int, duration: float) -> dict:
         "transition": ShotTransition.CUT.value,
         "framing": "product centered, facing camera, focus on the label",
         "screen_direction": "facing camera",
+        # odd shots carry a narrator voiceover line; even shots stay silent (testable mix)
+        "dialogue": "This is the moment everything changes." if i % 2 else None,
+        "speaker": "narrator" if i % 2 else None,
         "camera_id": i % 2,  # alternate between two camera setups
         "first_frame_desc": "the product sits centered on a clean surface, label "
         "facing camera, soft key light from the left",

@@ -137,6 +137,9 @@ def compose_shot_prompt(
     # screen-direction continuity (the 180-degree line)
     if shot.screen_direction and shot.screen_direction.strip():
         parts.append(f"screen direction: {shot.screen_direction.strip()}")
+    # a spoken line cues mouth movement / performance (the audio itself is added later as VO)
+    if shot.dialogue and shot.dialogue.strip() and (shot.speaker or "").lower() != "narrator":
+        parts.append(f"the subject is speaking the line: {shot.dialogue.strip()}")
 
     # visual direction from the persisted scene brief
     style_bits = [vb.get("visual_style"), vb.get("mood")]

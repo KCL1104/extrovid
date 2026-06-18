@@ -327,6 +327,8 @@ class ShotRead(BaseModel):
     character_id: str | None = None
     framing: str | None = None
     screen_direction: str | None = None
+    dialogue: str | None = None
+    speaker: str | None = None
     camera_id: int = 0
     first_frame_desc: str | None = None
     last_frame_desc: str | None = None
@@ -353,6 +355,8 @@ class ShotUpdate(BaseModel):
     character_id: str | None = None  # cast lock: CharacterProfile of the same project
     framing: str | None = None  # blocking: subject positions + facing + focus
     screen_direction: str | None = None  # 180-degree line: subject facing/movement direction
+    dialogue: str | None = None  # the one spoken line in this shot
+    speaker: str | None = None  # who speaks it ('narrator' for VO)
     first_frame_desc: str | None = None  # planned opening snapshot (keyframe contract)
     last_frame_desc: str | None = None  # planned closing snapshot
     motion_desc: str | None = None  # the motion between the keyframes
@@ -367,6 +371,8 @@ class ShotUpdate(BaseModel):
             "character_id",
             "framing",
             "screen_direction",
+            "dialogue",
+            "speaker",
             "first_frame_desc",
             "last_frame_desc",
             "motion_desc",

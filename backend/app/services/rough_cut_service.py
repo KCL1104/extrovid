@@ -359,19 +359,35 @@ def _scene_text(beats: list) -> str:
     return " ".join(parts).strip()
 
 
-async def _captions(session: AsyncSession, project_id: str, chosen, durs, trans) -> list[_Caption]:
-    scenes = (
-        (await session.execute(select(Scene).where(Scene.project_id == project_id))).scalars().all()
-    )
-    text_by_order = {s.order: _scene_text(s.beats) for s in scenes}
-    # per-clip start in the xfade-compressed final timeline
+def _clip_starts(durs: list[float], trans: list[str]) -> list[float]:
+    """Each clip's start time in the xfade-compressed final timeline."""
     starts = [0.0]
     for k in range(len(durs) - 1):
         t = max(0.05, min(_t_for(trans[k]), durs[k] - 0.05, durs[k + 1] - 0.05))
         starts.append(starts[k] + durs[k] - t)
+    return starts
+
+
+async def _captions(session: AsyncSession, project_id: str, chosen, durs, trans) -> list[_Caption]:
+    """Prefer per-SHOT dialogue (tight, line-accurate windows); fall back to per-SCENE
+    beat text only for shots that carry no spoken line."""
+    starts = _clip_starts(durs, trans)
+    has_shot_dialogue = any((shot.dialogue or "").strip() for _, shot in chosen)
     caps: list[_Caption] = []
-    i = 0
-    n = len(chosen)
+
+    if has_shot_dialogue:
+        for i, (_, shot) in enumerate(chosen):
+            line = (shot.dialogue or "").strip()
+            if line:
+                caps.append(_Caption(text=line[:200], start=starts[i], end=starts[i] + durs[i]))
+        return caps
+
+    # legacy fallback: one caption window per scene from its beats' narration/dialogue
+    scenes = (
+        (await session.execute(select(Scene).where(Scene.project_id == project_id))).scalars().all()
+    )
+    text_by_order = {s.order: _scene_text(s.beats) for s in scenes}
+    i, n = 0, len(chosen)
     while i < n:
         order = chosen[i][1].scene_order
         j = i

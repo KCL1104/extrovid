@@ -129,6 +129,9 @@ part in focus. Never describe elements that would not be visible in frame.
 Screen direction: when a subject faces or moves a particular way, set `screen_direction`
 (e.g. "moving left-to-right", "facing camera-right") and keep it consistent across the
 scene so the geometry does not flip across a cut (the 180-degree line).
+Dialogue: when a beat carries a spoken line, put it on the SINGLE shot that performs it —
+set `dialogue` to the verbatim line (no quotes) and `speaker` to the cast member's name
+(or "narrator" for voiceover). Leave both null for silent shots; at most one line per shot.
 Camera positions: give every shot a `camera_id`. Reuse an existing camera_id when the new
 shot could be filmed from the same physical camera position; introduce a new id only if the
 shot size, angle, and focus differ significantly. A camera that performs significant

@@ -256,6 +256,21 @@ class ShotDTO(BaseModel):
             "CAST list (enables the automatic cast lock). Null for shots without cast."
         ),
     )
+    dialogue: str | None = Field(
+        default=None,
+        description=(
+            "The ONE spoken line delivered during this shot, verbatim (no quotes, no stage "
+            "directions). Null for silent shots. Put a beat's dialogue on the single shot "
+            "that performs it."
+        ),
+    )
+    speaker: str | None = Field(
+        default=None,
+        description=(
+            "Who speaks the line — a cast member's canonical name, or 'narrator' for "
+            "voiceover. Null when there is no dialogue."
+        ),
+    )
     first_frame_desc: str | None = Field(
         default=None,
         description=(

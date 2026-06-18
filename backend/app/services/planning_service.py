@@ -162,6 +162,8 @@ async def _insert_shots(
                 transition=shot.transition.value,
                 framing=shot.framing,
                 screen_direction=shot.screen_direction,
+                dialogue=shot.dialogue,
+                speaker=shot.speaker,
                 camera_id=shot.camera_id,
                 character_id=character_id,
                 first_frame_desc=shot.first_frame_desc,

@@ -101,6 +101,15 @@ def test_screen_direction_reaches_the_prompt():
     assert "screen direction: moving left-to-right" in p
 
 
+def test_spoken_line_is_a_performance_cue_but_not_for_narrator():
+    shot = _shot()
+    shot.dialogue = "We did it."
+    shot.speaker = "Maya"
+    assert "speaking the line: We did it." in compose_shot_prompt(shot)
+    shot.speaker = "narrator"  # voiceover is not a mouth-movement cue
+    assert "speaking the line" not in compose_shot_prompt(shot)
+
+
 def test_appearance_anchored_subject():
     """Cast-locked subjects carry visible appearance inline (ViMax appearance-not-name)."""
     ch = CharacterProfile(

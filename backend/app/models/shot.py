@@ -31,6 +31,10 @@ class Shot(SQLModel, table=True):
     # screen-direction continuity (the 180-degree line): which way the subject faces/moves
     # relative to the frame — checked across shots so the geometry does not flip
     screen_direction: str | None = None
+    # the one spoken line delivered in this shot + who says it ('narrator' for VO) — drives
+    # captions, the performance prompt, and (later) TTS voiceover
+    dialogue: str | None = None
+    speaker: str | None = None
     # physical camera setup index — shots sharing a camera_id are the same setup
     camera_id: int = Field(default=0)
     # keyframe contract: planned opening/closing snapshots + the motion between them
