@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { getToken, setUser } from "@/lib/auth";
 import { me } from "@/lib/api";
 import AuthScreen from "@/components/AuthScreen";
+import Landing from "@/components/Landing";
 
 // Routes that render without a session (the public gallery + the OAuth landing).
 const PUBLIC_PREFIXES = ["/gallery", "/auth/callback"];
@@ -24,6 +25,8 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const storedToken = useSyncExternalStore(subscribeToken, getToken, () => null);
   // freshly-issued token from the sign-in screen (covers the gap before storage settles)
   const [sessionToken, setSessionToken] = useState<string | null>(null);
+  // logged-out root shows the public landing first; the CTA reveals the sign-in screen
+  const [showAuth, setShowAuth] = useState(false);
   const pathname = usePathname();
   const token = storedToken ?? sessionToken;
 
@@ -40,6 +43,10 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   }, [token]);
 
   if (PUBLIC_PREFIXES.some((p) => pathname?.startsWith(p))) return <>{children}</>;
-  if (!token) return <AuthScreen onAuthed={(t) => setSessionToken(t)} />;
+  if (!token) {
+    // landing only at the root; a deep link to a gated route goes straight to sign-in
+    if (pathname === "/" && !showAuth) return <Landing onEnter={() => setShowAuth(true)} />;
+    return <AuthScreen onAuthed={(t) => setSessionToken(t)} />;
+  }
   return <>{children}</>;
 }
