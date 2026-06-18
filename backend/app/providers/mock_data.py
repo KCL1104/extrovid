@@ -119,6 +119,7 @@ def _scene_visual_plan_dict(text: str) -> dict:
             "character_notes": None,
             "environment_notes": "minimal, uncluttered set",
             "negative_rules": ["no harsh shadows", "no busy backgrounds"],
+            "axis_lock": True,
         },
         "concept_set": {
             "scene_order": scene_order,
@@ -267,6 +268,7 @@ def _mock_shot(i: int, scene_order: int, duration: float) -> dict:
         "reference_look_frame_ids": [],
         "transition": ShotTransition.CUT.value,
         "framing": "product centered, facing camera, focus on the label",
+        "screen_direction": "facing camera",
         "camera_id": i % 2,  # alternate between two camera setups
         "first_frame_desc": "the product sits centered on a clean surface, label "
         "facing camera, soft key light from the left",

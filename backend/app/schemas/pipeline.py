@@ -134,6 +134,13 @@ class VisualBrief(BaseModel):
     character_notes: str | None = None
     environment_notes: str | None = None
     negative_rules: list[str] = Field(default_factory=list)
+    axis_lock: bool = Field(
+        default=False,
+        description=(
+            "When true, the scene holds the 180-degree line: shots keep a consistent screen "
+            "direction so the spatial geometry never flips across cuts within the scene."
+        ),
+    )
 
 
 class PlannedLookFrame(BaseModel):
@@ -231,6 +238,15 @@ class ShotDTO(BaseModel):
             "Blocking: where each visible subject sits in the frame, which direction "
             "they face, and what the focus is on "
             "(e.g. 'Maya on left third, facing right, focus on her hands')."
+        ),
+    )
+    screen_direction: str | None = Field(
+        default=None,
+        description=(
+            "Screen-direction continuity (the 180-degree line): which way the main subject "
+            "faces or moves relative to the frame — e.g. 'moving left-to-right', 'facing "
+            "camera-right'. Keep it consistent across shots in a scene unless a cut is "
+            "motivated, so the geometry does not flip."
         ),
     )
     character_name: str | None = Field(

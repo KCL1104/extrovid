@@ -94,6 +94,13 @@ def test_framing_reaches_the_prompt():
     assert "framing: watch on right third, face dial toward camera" in p
 
 
+def test_screen_direction_reaches_the_prompt():
+    shot = _shot()
+    shot.screen_direction = "moving left-to-right"
+    p = compose_shot_prompt(shot)
+    assert "screen direction: moving left-to-right" in p
+
+
 def test_appearance_anchored_subject():
     """Cast-locked subjects carry visible appearance inline (ViMax appearance-not-name)."""
     ch = CharacterProfile(

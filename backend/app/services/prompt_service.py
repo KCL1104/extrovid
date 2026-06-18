@@ -134,6 +134,9 @@ def compose_shot_prompt(
     # blocking: subject frame positions + facing directions (planned by the storyboard)
     if shot.framing and shot.framing.strip():
         parts.append(f"framing: {shot.framing.strip()}")
+    # screen-direction continuity (the 180-degree line)
+    if shot.screen_direction and shot.screen_direction.strip():
+        parts.append(f"screen direction: {shot.screen_direction.strip()}")
 
     # visual direction from the persisted scene brief
     style_bits = [vb.get("visual_style"), vb.get("mood")]

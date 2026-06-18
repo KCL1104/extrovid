@@ -43,6 +43,7 @@ function fromShot(s: Shot) {
     transition: s.transition,
     extra_direction: s.extra_direction ?? "",
     framing: s.framing ?? "",
+    screen_direction: s.screen_direction ?? "",
     motion_desc: s.motion_desc ?? "",
   };
 }
@@ -90,6 +91,10 @@ export default function ShotInspector({
   const [note, setNote] = useState("");
   const [reviewing, setReviewing] = useState(false);
   const [numTakes, setNumTakes] = useState(1);
+  // lower-panel section: keep the player+takes always visible, switch Review/Direction below
+  const [section, setSection] = useState<"review" | "direction">(
+    versions.some((v) => v.review) ? "review" : "direction",
+  );
   // editable direction form (per-shot state resets via the parent's `key={shot.id}`)
   const [draft, setDraft] = useState<Draft>(() => fromShot(shot));
   const [saving, setSaving] = useState(false);
@@ -191,6 +196,8 @@ export default function ShotInspector({
     patch.extra_direction = trimmed.extra_direction || null;
   if ((draft.framing.trim() || null) !== (shot.framing ?? null))
     patch.framing = draft.framing.trim() || null;
+  if ((draft.screen_direction.trim() || null) !== (shot.screen_direction ?? null))
+    patch.screen_direction = draft.screen_direction.trim() || null;
   if ((draft.motion_desc.trim() || null) !== (shot.motion_desc ?? null))
     patch.motion_desc = draft.motion_desc.trim() || null;
 
@@ -332,8 +339,33 @@ export default function ShotInspector({
           </div>
         )}
 
+        {/* section switch — the stage (player+takes) stays above; this declutters the scroll */}
+        <div className="flex gap-1 border-b border-border" role="tablist" aria-label="Inspector section">
+          {(["review", "direction"] as const).map((sec) => (
+            <button
+              key={sec}
+              role="tab"
+              aria-selected={section === sec}
+              onClick={() => setSection(sec)}
+              className={cn(
+                "relative -mb-px flex items-center gap-1.5 px-3 py-2 font-mono text-xs capitalize transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                section === sec ? "border-b-2 border-accent text-accent" : "text-faint hover:text-fg",
+              )}
+            >
+              {sec}
+              {sec === "review" && active?.review && (
+                <ScoreBadge score={active.review.score} verdict={active.review.verdict} />
+              )}
+              {sec === "direction" && dirty && (
+                <span className="size-1.5 rounded-full bg-run" aria-label="unsaved" />
+              )}
+            </button>
+          ))}
+        </div>
+
         {/* AI review */}
-        {active?.review && (
+        {section === "review" &&
+          (active?.review ? (
           <Panel className="p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
@@ -393,9 +425,14 @@ export default function ShotInspector({
               </div>
             )}
           </Panel>
-        )}
+          ) : (
+            <p className="px-1 py-6 text-center text-sm text-faint">
+              No review yet — generate a take to see the AI dailies review.
+            </p>
+          ))}
 
         {/* direction — editable; saved via PATCH and fed into the next generation */}
+        {section === "direction" && (
         <Panel className="p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <Eyebrow>Direction</Eyebrow>
@@ -533,6 +570,15 @@ export default function ShotInspector({
                 className={inputCls}
               />
             </Field>
+            <Field label="screen direction (180° line)" htmlFor="dir-screen-direction">
+              <input
+                id="dir-screen-direction"
+                value={draft.screen_direction}
+                onChange={set("screen_direction")}
+                placeholder="e.g. “moving left-to-right”, “facing camera-right”"
+                className={inputCls}
+              />
+            </Field>
             <Field label="motion (between the planned key frames)" htmlFor="dir-motion">
               <textarea
                 id="dir-motion"
@@ -614,6 +660,7 @@ export default function ShotInspector({
             </details>
           )}
         </Panel>
+        )}
 
         {/* failure */}
         {!active &&

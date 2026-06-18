@@ -326,6 +326,7 @@ class ShotRead(BaseModel):
     extra_direction: str | None = None
     character_id: str | None = None
     framing: str | None = None
+    screen_direction: str | None = None
     camera_id: int = 0
     first_frame_desc: str | None = None
     last_frame_desc: str | None = None
@@ -351,6 +352,7 @@ class ShotUpdate(BaseModel):
     extra_direction: str | None = None  # director's notes, fed verbatim into the prompt
     character_id: str | None = None  # cast lock: CharacterProfile of the same project
     framing: str | None = None  # blocking: subject positions + facing + focus
+    screen_direction: str | None = None  # 180-degree line: subject facing/movement direction
     first_frame_desc: str | None = None  # planned opening snapshot (keyframe contract)
     last_frame_desc: str | None = None  # planned closing snapshot
     motion_desc: str | None = None  # the motion between the keyframes
@@ -364,6 +366,7 @@ class ShotUpdate(BaseModel):
             "extra_direction",
             "character_id",
             "framing",
+            "screen_direction",
             "first_frame_desc",
             "last_frame_desc",
             "motion_desc",

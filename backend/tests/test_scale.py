@@ -6,7 +6,14 @@ Offline (mock LLM + video). The per-scene fan-out is what breaks the 5-10-shot /
 
 from app.models.shot import Shot
 from app.pipeline.orchestrator import _scene_tail, build_scene_storyboard_prompt
-from app.schemas.pipeline import CameraSpec, PerformanceSpec, SceneBeat, SceneDraft, ShotDTO
+from app.schemas.pipeline import (
+    CameraSpec,
+    PerformanceSpec,
+    SceneBeat,
+    SceneDraft,
+    ShotDTO,
+    VisualBrief,
+)
 from app.services.prompt_service import portrait_view_for
 
 
@@ -110,6 +117,30 @@ def test_scene_storyboard_prompt_carries_continuity_baton():
     )
     assert "CONTINUITY" in p
     assert "a wide street at dusk" in p
+
+
+def _vb(axis_lock: bool) -> VisualBrief:
+    return VisualBrief(
+        scene_order=1,
+        visual_style="noir",
+        mood="tense",
+        palette=["#111"],
+        lighting="hard rim",
+        camera_language="locked-off",
+        axis_lock=axis_lock,
+    )
+
+
+def test_axis_lock_reaches_scene_prompt():
+    assert "180-degree line" in build_scene_storyboard_prompt(_scene(), _vb(True), 10)
+    assert "180-degree line" not in build_scene_storyboard_prompt(_scene(), _vb(False), 10)
+
+
+async def test_screen_direction_persists_through_planning(client):
+    pid = (await client.post("/api/projects", json={"title": "SD"})).json()["id"]
+    await client.post(f"/api/projects/{pid}/run", json={"raw_prompt": "a 20s teaser"})
+    shots = (await client.get(f"/api/projects/{pid}/storyboard")).json()
+    assert all(s["screen_direction"] for s in shots)  # planner emits it, it round-trips
 
 
 def test_scene_tail_summarizes_last_shot():

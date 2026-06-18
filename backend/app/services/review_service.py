@@ -84,6 +84,7 @@ def _build_review_prompt(shot: Shot, version: ShotVersion, visual_brief: dict | 
         f"Performance: {perf.get('subject', '?')} — {perf.get('action', '')}"
         + (f" ({perf['emotion']})" if perf.get("emotion") else ""),
         *([f"Framing: {shot.framing}"] if shot.framing else []),
+        *([f"Screen direction: {shot.screen_direction}"] if shot.screen_direction else []),
         *(
             [f"Planned end state: {shot.last_frame_desc}"]
             if shot.last_frame_desc

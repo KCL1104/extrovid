@@ -28,6 +28,9 @@ class Shot(SQLModel, table=True):
     character_id: str | None = Field(default=None, foreign_key="characterprofile.id")
     # blocking: subject frame positions + facing directions + focus (-> prompt + review)
     framing: str | None = None
+    # screen-direction continuity (the 180-degree line): which way the subject faces/moves
+    # relative to the frame — checked across shots so the geometry does not flip
+    screen_direction: str | None = None
     # physical camera setup index — shots sharing a camera_id are the same setup
     camera_id: int = Field(default=0)
     # keyframe contract: planned opening/closing snapshots + the motion between them

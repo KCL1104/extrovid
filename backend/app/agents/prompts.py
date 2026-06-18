@@ -126,6 +126,9 @@ Blocking: for every shot, fill `framing` — where each visible subject sits in 
 the direction they are facing, and what the focus is on (e.g. "Maya on left third, facing
 right, focus on her hands"). When the shot focuses on a character, name the specific body
 part in focus. Never describe elements that would not be visible in frame.
+Screen direction: when a subject faces or moves a particular way, set `screen_direction`
+(e.g. "moving left-to-right", "facing camera-right") and keep it consistent across the
+scene so the geometry does not flip across a cut (the 180-degree line).
 Camera positions: give every shot a `camera_id`. Reuse an existing camera_id when the new
 shot could be filmed from the same physical camera position; introduce a new id only if the
 shot size, angle, and focus differ significantly. A camera that performs significant

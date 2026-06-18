@@ -137,6 +137,12 @@ def build_scene_storyboard_prompt(
         joined = ", ".join(b for b in bits if b)
         if joined:
             direction = f"\nVisual direction (honor it in camera_spec choices): {joined}"
+    # axis lock (180-degree line): set per-shot screen_direction consistently across the scene
+    if visual_brief is not None and getattr(visual_brief, "axis_lock", False):
+        direction += (
+            "\nHold the 180-degree line: give each shot a screen_direction and keep it "
+            "consistent across the scene so the spatial geometry never flips across a cut."
+        )
     # the continuity baton: each scene is planned in isolation, so the previous scene's
     # ending is the ONLY cross-scene memory the planner gets — it is what makes a seam
     # match-cut (or a motivated hard cut) authorable instead of accidental.
@@ -253,6 +259,8 @@ def _scene_tail(shots: list[ShotDTO]) -> str | None:
         bits.append(f"ended near: {last.first_frame_desc}")
     if last.framing:
         bits.append(f"final framing: {last.framing}")
+    if last.screen_direction:
+        bits.append(f"screen direction: {last.screen_direction}")
     subject = last.performance_spec.subject if last.performance_spec else ""
     if subject:
         bits.append(f"subject last in frame: {subject}")

@@ -120,6 +120,7 @@ export type Shot = {
   extra_direction: string | null;
   character_id: string | null;
   framing?: string | null; // blocking: positions + facing + focus
+  screen_direction?: string | null; // 180° line: subject facing/movement direction
   camera_id?: number; // physical camera setup identity
   first_frame_desc?: string | null; // keyframe contract: planned opening snapshot
   last_frame_desc?: string | null;
@@ -144,6 +145,7 @@ export type ShotUpdate = {
   extra_direction?: string | null;
   character_id?: string | null;
   framing?: string | null;
+  screen_direction?: string | null;
   first_frame_desc?: string | null;
   last_frame_desc?: string | null;
   motion_desc?: string | null;
