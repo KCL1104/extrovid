@@ -53,6 +53,7 @@ async def assemble(
             clip_plan=[c.model_dump() for c in opts.clips] if opts.clips else None,
             captions=opts.captions,
             music=opts.music,
+            voiceover=opts.voiceover,
         )
     except LookupError as e:
         raise HTTPException(status_code=400, detail=str(e)) from None

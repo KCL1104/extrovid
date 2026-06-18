@@ -1,9 +1,12 @@
 """Audio: per-shot dialogue binding + captions + TTS voiceover. Offline (mock)."""
 
+import subprocess
+
 from app.models.memory import CharacterProfile
 from app.models.shot import Shot
+from app.providers.audio_factory import MOCK_WAV
 from app.services.audio_service import resolve_voice
-from app.services.rough_cut_service import _captions
+from app.services.rough_cut_service import _captions, _Clip, _ff, _probe, render_rough_cut
 
 
 def _shot(order: int, dialogue: str | None = None) -> Shot:
@@ -86,3 +89,30 @@ async def test_voiceover_counts_as_audio_not_image(client):
     after = (await client.get("/api/usage")).json()
     assert after["audio_today"] == before["audio_today"] + 1
     assert after["images_today"] == before["images_today"]  # not mislabeled as an image
+
+
+def test_rough_cut_mixes_voiceover_through_ffmpeg(tmp_path):
+    """Real ffmpeg coverage for the VO filtergraph — the mock path short-circuits, so the
+    adelay/amix(normalize=0)/ducked-bed chain is otherwise untested."""
+    ff = _ff()
+    src = str(tmp_path / "clip.mp4")
+    subprocess.run(
+        [
+            ff, "-y",
+            "-f", "lavfi", "-i", "testsrc=size=320x240:rate=15:duration=0.4",
+            "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+            "-t", "0.4", "-c:v", "libx264", "-c:a", "aac", src,
+        ],
+        check=True,
+        capture_output=True,
+    )
+    data = open(src, "rb").read()
+    clips = [
+        _Clip(data=data, duration=0.4, transition="cut", vo=MOCK_WAV),  # voiced shot
+        _Clip(data=data, duration=0.4, transition="cut", vo=None),  # silent shot
+    ]
+    out = render_rough_cut(clips, captions=[], want_music=True)  # no subtitles → no libass dep
+    op = str(tmp_path / "out.mp4")
+    open(op, "wb").write(out)
+    _, _, has_audio, dur = _probe(ff, op)
+    assert has_audio and dur > 0 and len(out) > 1000  # a real encoded cut with a mixed track

@@ -121,6 +121,9 @@ export type Shot = {
   character_id: string | null;
   framing?: string | null; // blocking: positions + facing + focus
   screen_direction?: string | null; // 180° line: subject facing/movement direction
+  dialogue?: string | null; // the one spoken line in this shot
+  speaker?: string | null; // who speaks it ('narrator' for VO)
+  vo_asset_id?: string | null; // synthesized voiceover audio
   camera_id?: number; // physical camera setup identity
   first_frame_desc?: string | null; // keyframe contract: planned opening snapshot
   last_frame_desc?: string | null;
@@ -146,6 +149,8 @@ export type ShotUpdate = {
   character_id?: string | null;
   framing?: string | null;
   screen_direction?: string | null;
+  dialogue?: string | null;
+  speaker?: string | null;
   first_frame_desc?: string | null;
   last_frame_desc?: string | null;
   motion_desc?: string | null;
@@ -205,7 +210,7 @@ export type RoughCut = {
   video_url: string | null;
   shot_version_ids: string[];
   clips?: ClipSpec[] | null;
-  options?: { captions?: boolean; music?: boolean } | null;
+  options?: { captions?: boolean; music?: boolean; voiceover?: boolean } | null;
   created_at?: string | null;
   published: boolean;
   published_id: string | null;
@@ -416,6 +421,9 @@ export const generateAllKeyframes = (id: string) =>
 // keyframe gate: re-run the identity/composition/view review on the shot's keyframe
 export const reviewKeyframe = (id: string, shotId: string) =>
   api<LookFrame>(`/projects/${id}/shots/${shotId}/keyframe/review`, { method: "POST" });
+// voiceover: synthesize the shot's spoken line (TTS) into a stored audio asset
+export const generateVoiceover = (id: string, shotId: string) =>
+  api<Shot>(`/projects/${id}/shots/${shotId}/voiceover`, { method: "POST" });
 
 // cast pipeline
 export const generateCast = (id: string) =>
@@ -464,7 +472,7 @@ export const retryJob = (id: string, jobId: string) =>
 
 export const assembleRoughCut = (
   id: string,
-  opts?: { clips?: ClipSpec[]; captions?: boolean; music?: boolean },
+  opts?: { clips?: ClipSpec[]; captions?: boolean; music?: boolean; voiceover?: boolean },
 ) =>
   api<RoughCut>(`/projects/${id}/rough-cut`, {
     method: "POST",

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ChangeEvent, type ReactNode } from "react";
-import { ArrowRightToLine, Columns2, ImagePlus, RefreshCw, Sparkles, X } from "lucide-react";
+import { ArrowRightToLine, Columns2, ImagePlus, RefreshCw, Sparkles, Volume2, X } from "lucide-react";
 import type { Character, Shot, ShotTransition, ShotUpdate, ShotVersion } from "@/lib/api";
 import {
   Button,
@@ -44,6 +44,8 @@ function fromShot(s: Shot) {
     extra_direction: s.extra_direction ?? "",
     framing: s.framing ?? "",
     screen_direction: s.screen_direction ?? "",
+    dialogue: s.dialogue ?? "",
+    speaker: s.speaker ?? "",
     motion_desc: s.motion_desc ?? "",
   };
 }
@@ -64,6 +66,7 @@ export default function ShotInspector({
   onReview,
   onUpdate,
   onKeyframe,
+  onVoiceover,
 }: {
   shot: Shot;
   versions: ShotVersion[];
@@ -83,6 +86,7 @@ export default function ShotInspector({
   onReview: (versionId: string) => Promise<void>;
   onUpdate: (patch: ShotUpdate) => Promise<void>;
   onKeyframe: () => void;
+  onVoiceover: () => void;
 }) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [compareId, setCompareId] = useState<string | null>(null);
@@ -200,6 +204,10 @@ export default function ShotInspector({
     patch.framing = draft.framing.trim() || null;
   if ((draft.screen_direction.trim() || null) !== (shot.screen_direction ?? null))
     patch.screen_direction = draft.screen_direction.trim() || null;
+  if ((draft.dialogue.trim() || null) !== (shot.dialogue ?? null))
+    patch.dialogue = draft.dialogue.trim() || null;
+  if ((draft.speaker.trim() || null) !== (shot.speaker ?? null))
+    patch.speaker = draft.speaker.trim() || null;
   if ((draft.motion_desc.trim() || null) !== (shot.motion_desc ?? null))
     patch.motion_desc = draft.motion_desc.trim() || null;
 
@@ -581,6 +589,26 @@ export default function ShotInspector({
                 className={inputCls}
               />
             </Field>
+            <div className="grid grid-cols-[1fr_auto] gap-2">
+              <Field label="dialogue (spoken line)" htmlFor="dir-dialogue">
+                <input
+                  id="dir-dialogue"
+                  value={draft.dialogue}
+                  onChange={set("dialogue")}
+                  placeholder="the one line spoken in this shot"
+                  className={inputCls}
+                />
+              </Field>
+              <Field label="speaker" htmlFor="dir-speaker">
+                <input
+                  id="dir-speaker"
+                  value={draft.speaker}
+                  onChange={set("speaker")}
+                  placeholder="narrator"
+                  className={cn(inputCls, "w-28")}
+                />
+              </Field>
+            </div>
             <Field label="motion (between the planned key frames)" htmlFor="dir-motion">
               <textarea
                 id="dir-motion"
@@ -776,6 +804,16 @@ export default function ShotInspector({
             <ImagePlus size={14} aria-hidden />
             {shot.keyframe_frame_id ? "Re-keyframe" : "Keyframe"}
           </Button>
+          {shot.dialogue && (
+            <Button
+              loading={jobRunning}
+              onClick={onVoiceover}
+              title="Synthesize this shot's spoken line as a voiceover (TTS)"
+            >
+              <Volume2 size={14} aria-hidden />
+              {shot.vo_asset_id ? "Re-voice" : "Voiceover"}
+            </Button>
+          )}
         </div>
         {active && (
           <div className="flex items-center gap-2">

@@ -273,6 +273,7 @@ class AssembleRequest(BaseModel):
     clips: list[ClipSpec] | None = None
     captions: bool = True
     music: bool = True
+    voiceover: bool = True  # mix each shot's synthesized voiceover under the cut
 
 
 class RoughCutRead(BaseModel):

@@ -10,6 +10,7 @@ import {
   generateImages,
   generateKeyframe,
   generateShot,
+  generateVoiceover,
   getConceptSets,
   getProject,
   getScript,
@@ -280,6 +281,20 @@ export default function Workspace({ projectId }: { projectId: string }) {
     }
   }
 
+  async function genVoiceover(shotId: string) {
+    setBusy((b) => ({ ...b, [shotId]: true }));
+    setError(null);
+    try {
+      await generateVoiceover(projectId, shotId);
+      setShots(await getStoryboard(projectId));
+      usageChanged();
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setBusy((b) => ({ ...b, [shotId]: false }));
+    }
+  }
+
   async function genAllKeyframes() {
     setBatchBusy("keyframes");
     setError(null);
@@ -371,11 +386,16 @@ export default function Workspace({ projectId }: { projectId: string }) {
     }
   }
 
-  async function assemble(clips: ClipSpec[], captions: boolean, music: boolean) {
+  async function assemble(
+    clips: ClipSpec[],
+    captions: boolean,
+    music: boolean,
+    voiceover: boolean,
+  ) {
     setAssembling(true);
     setError(null);
     try {
-      await assembleRoughCut(projectId, { clips, captions, music });
+      await assembleRoughCut(projectId, { clips, captions, music, voiceover });
       setRoughCuts(await listRoughCuts(projectId));
     } catch (e) {
       setError(errMsg(e));
@@ -432,6 +452,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
       onReview={(versionId) => reviewNow(inspectedShot.id, versionId)}
       onUpdate={(patch) => patchShot(inspectedShot.id, patch)}
       onKeyframe={() => genKeyframe(inspectedShot.id)}
+      onVoiceover={() => genVoiceover(inspectedShot.id)}
     />
   ) : null;
 

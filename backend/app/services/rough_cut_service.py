@@ -41,6 +41,7 @@ class _Clip:
     transition: str  # transition AFTER this clip (to the next)
     in_sec: float = 0.0  # trim start (frame-accurate; clips are re-encoded anyway)
     out_sec: float | None = None  # trim end; None = play to the end
+    vo: bytes | None = None  # synthesized voiceover audio to lay over this clip
 
 
 @dataclass
@@ -214,16 +215,56 @@ def _synth_bed(ff: str, duration: float, dst: str) -> None:
     )
 
 
-def _finalize(ff: str, body: str, srt: str | None, bed: str | None, dst: str) -> None:
+def _finalize(
+    ff: str,
+    body: str,
+    srt: str | None,
+    bed: str | None,
+    vo_tracks: list[tuple[str, float]] | None,
+    dst: str,
+) -> None:
+    """Burn subtitles + lay each voiceover at its clip start over a ducked ambient bed.
+
+    Audio is mixed with ``normalize=0`` so adding the bed/VOs does NOT attenuate the clip
+    audio (the amix default scales by 1/N — that quiets everything). The bed is ducked via
+    an explicit volume filter; voiceovers play at full level, delayed to each clip's start.
+    """
+    vo_tracks = vo_tracks or []
     inputs = ["-i", body]
+    idx = 1
+    bed_idx: int | None = None
     if bed:
         inputs += ["-i", bed]
+        bed_idx = idx
+        idx += 1
+    vo_idx: list[int] = []
+    for path, _ in vo_tracks:
+        inputs += ["-i", path]
+        vo_idx.append(idx)
+        idx += 1
+
     vchain = (
         f"[0:v]subtitles={srt}:force_style='Alignment=2,FontSize=18,PrimaryColour=&H00FFFFFF&,OutlineColour=&H00000000&,BorderStyle=1,Outline=2,Shadow=0,MarginV=40'[outv]"
         if srt
         else None
     )
-    achain = "[0:a][1:a]amix=inputs=2:duration=first[outa]" if bed else None
+
+    # audio: clip track + (ducked) bed + each VO delayed to its clip's start
+    parts: list[str] = []
+    labels: list[str] = ["0:a"]
+    if bed_idx is not None:
+        parts.append(f"[{bed_idx}:a]volume=0.5[bedq]")
+        labels.append("bedq")
+    for n, (_, start) in enumerate(vo_tracks):
+        ms = int(max(0.0, start) * 1000)
+        parts.append(f"[{vo_idx[n]}:a]adelay={ms}|{ms}[vo{n}]")
+        labels.append(f"vo{n}")
+    achain = None
+    if len(labels) > 1:
+        mix = "".join(f"[{label}]" for label in labels)
+        mix += f"amix=inputs={len(labels)}:duration=first:normalize=0[outa]"
+        achain = ";".join([*parts, mix])
+
     args = [ff, "-y", *inputs]
     if vchain and achain:
         args += ["-filter_complex", f"{vchain};{achain}", "-map", "[outv]", "-map", "[outa]"]
@@ -303,11 +344,23 @@ def render_rough_cut(clips: list[_Clip], captions: list[_Caption], want_music: b
             except subprocess.CalledProcessError:
                 bed_path = None
 
-        # finalize (subtitles + bed); degrade to body on failure
+        # voiceover: each clip's VO laid at its start in the xfade-compressed timeline.
+        # starts are computed HERE from the probed normalized durs (NOT the caption copy),
+        # so a long cut's VO never drifts against the actual rendered body.
+        vo_tracks: list[tuple[str, float]] = []
+        starts = _clip_starts(durs, [c.transition for c in clips])
+        for i, c in enumerate(clips):
+            if c.vo:
+                vp = os.path.join(d, f"vo{i}.wav")
+                with open(vp, "wb") as fh:
+                    fh.write(c.vo)
+                vo_tracks.append((vp, starts[i]))
+
+        # finalize (subtitles + bed + voiceover); degrade to body on failure
         out = os.path.join(d, "out.mp4")
-        if srt_path or bed_path:
+        if srt_path or bed_path or vo_tracks:
             try:
-                _finalize(ff, body, srt_path, bed_path, out)
+                _finalize(ff, body, srt_path, bed_path, vo_tracks, out)
             except subprocess.CalledProcessError:
                 out = body
         else:
@@ -436,6 +489,7 @@ async def assemble_rough_cut(
     clip_plan: list[dict] | None = None,
     captions: bool = True,
     music: bool = True,
+    voiceover: bool = True,
 ) -> TimelineSequence:
     if clip_plan:
         chosen = await _resolve_clip_plan(session, project_id, clip_plan)
@@ -455,6 +509,11 @@ async def assemble_rough_cut(
             blob = await download_bytes(presigned_url(asset.bucket_key))
             nominal = v.duration_sec or shot.duration_sec
             in_sec, out_sec, duration = _trim_for(plan_by_version.get(v.id), nominal)
+            vo: bytes | None = None
+            if voiceover and shot.vo_asset_id:
+                vo_asset = await session.get(ImageAsset, shot.vo_asset_id)
+                if vo_asset is not None:
+                    vo = await download_bytes(presigned_url(vo_asset.bucket_key))
             clips.append(
                 _Clip(
                     data=blob,
@@ -462,6 +521,7 @@ async def assemble_rough_cut(
                     transition=shot.transition,
                     in_sec=in_sec,
                     out_sec=out_sec,
+                    vo=vo,
                 )
             )
         durs = [c.duration for c in clips]
@@ -491,7 +551,7 @@ async def assemble_rough_cut(
             }
             for v, _ in chosen
         ],
-        options={"captions": captions, "music": music},
+        options={"captions": captions, "music": music, "voiceover": voiceover},
         status="ready",
     )
     session.add(seq)

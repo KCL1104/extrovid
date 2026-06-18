@@ -59,12 +59,13 @@ export default function CutPlanner({
   aspect: string;
   assembling: boolean;
   publishing: string | null;
-  onAssemble: (clips: ClipSpec[], captions: boolean, music: boolean) => void;
+  onAssemble: (clips: ClipSpec[], captions: boolean, music: boolean, voiceover: boolean) => void;
   onTogglePublish: (rc: RoughCut) => void;
 }) {
   const [rows, setRows] = useState<PlanRow[]>([]);
   const [captions, setCaptions] = useState(true);
   const [music, setMusic] = useState(true);
+  const [voiceover, setVoiceover] = useState(true);
   const [selected, setSelected] = useState<string | null>(null); // selected shotId for trim
   const [dragId, setDragId] = useState<string | null>(null);
 
@@ -148,7 +149,7 @@ export default function CutPlanner({
         ...(Number.isFinite(outSec) && outSec > 0 ? { out_sec: outSec } : {}),
       };
     });
-    onAssemble(clips, captions, music);
+    onAssemble(clips, captions, music, voiceover);
   }
 
   const totalSec = rows.reduce((acc, r) => acc + effDur(r), 0);
@@ -179,6 +180,7 @@ export default function CutPlanner({
           <div className="flex flex-wrap items-center gap-2">
             <Toggle checked={captions} onChange={setCaptions} label="captions" />
             <Toggle checked={music} onChange={setMusic} label="ambient bed" />
+            <Toggle checked={voiceover} onChange={setVoiceover} label="voiceover" />
             <Button
               variant="ghost"
               onClick={() => {
