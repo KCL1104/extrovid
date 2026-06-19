@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.asset import ImageAsset
 from app.models.concept import LookFrame, VisualConceptSet
 from app.models.director import DirectorTurn
+from app.models.gallery import PublishedVideo
 from app.models.generation import GenerationJob, ShotVersion
 from app.models.memory import CharacterProfile, StylePack
 from app.models.project import Brief, Project
@@ -146,6 +147,10 @@ async def delete_project(session: AsyncSession, project: Project) -> list[str]:
     await session.execute(delete(VisualConceptSet).where(VisualConceptSet.project_id == pid))
     await session.execute(delete(Scene).where(Scene.project_id == pid))
     await session.execute(delete(Brief).where(Brief.project_id == pid))
+    # PublishedVideo (gallery share) FKs the rough cut's TimelineSequence (and the project),
+    # so it must go BEFORE the sequence — else published_video_timeline_sequence_id_fkey rejects
+    # the delete (a published project would 500 on delete).
+    await session.execute(delete(PublishedVideo).where(PublishedVideo.project_id == pid))
     await session.execute(delete(TimelineSequence).where(TimelineSequence.project_id == pid))
     await session.execute(delete(CharacterProfile).where(CharacterProfile.project_id == pid))
     await session.execute(delete(StylePack).where(StylePack.project_id == pid))
