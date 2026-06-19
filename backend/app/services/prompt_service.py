@@ -207,8 +207,13 @@ def compose_keyframe_prompt(
         moment = "the closing frame" if kind == "last" else "the opening frame"
         edge = "the shot ends" if kind == "last" else "the shot begins"
         parts.append(f"{moment} of a shot: {subject} in place, frozen at the moment {edge}")
-        if shot.framing:
-            parts.append(f"framing: {shot.framing}")
+    # Facing/direction is continuity-critical for the i2v seed — always carry it (the video
+    # prompt does the same), so the keyframe doesn't default the subject to facing camera when
+    # the shot intends e.g. "walking away" or a screen-direction the next shot must respect.
+    if shot.framing and shot.framing.strip():
+        parts.append(f"framing: {shot.framing.strip()}")
+    if shot.screen_direction and shot.screen_direction.strip():
+        parts.append(f"screen direction: {shot.screen_direction.strip()}")
     if character:
         desc = (character.description or "").strip()
         if desc:

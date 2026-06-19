@@ -2,7 +2,11 @@
 
 from app.models.memory import CharacterProfile, StylePack
 from app.models.shot import Shot
-from app.services.prompt_service import compose_negative_prompt, compose_shot_prompt
+from app.services.prompt_service import (
+    compose_keyframe_prompt,
+    compose_negative_prompt,
+    compose_shot_prompt,
+)
 
 VISUAL_BRIEF = {
     "scene_order": 0,
@@ -99,6 +103,18 @@ def test_screen_direction_reaches_the_prompt():
     shot.screen_direction = "moving left-to-right"
     p = compose_shot_prompt(shot)
     assert "screen direction: moving left-to-right" in p
+
+
+def test_keyframe_seed_carries_facing_direction_even_with_first_frame_desc():
+    """The i2v seed must encode facing/direction so the video doesn't default to facing camera."""
+    shot = _shot()
+    shot.first_frame_desc = "the figure at the airlock threshold, hand on the lever"
+    shot.framing = "subject seen from behind, walking away from camera"
+    shot.screen_direction = "moving away, deeper into the ship"
+    p = compose_keyframe_prompt(shot, visual_brief=VISUAL_BRIEF)
+    assert "the figure at the airlock threshold" in p  # planned snapshot still leads
+    assert "framing: subject seen from behind, walking away" in p
+    assert "screen direction: moving away" in p
 
 
 def test_spoken_line_is_a_performance_cue_but_not_for_narrator():
