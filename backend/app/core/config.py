@@ -43,7 +43,10 @@ class Settings(BaseSettings):
     # image model (up to 4K) — same DashScope multimodal-generation endpoint + request/response
     # shape as qwen-image, so it's a drop-in model-id swap. Field name kept for blast radius.
     qwen_image_model: str = "wan2.7-image-pro"
-    qwen_image_edit_model: str = "qwen-image-edit-plus"  # iterative look-frame refinement (qwen)
+    # Refine/edit also uses wan2.7-image-pro — the Wan2.7 image family is unified (gen + edit
+    # share one model id on the same multimodal-generation endpoint; the edit call just adds the
+    # source image to the message content), so this is a drop-in swap too.
+    qwen_image_edit_model: str = "wan2.7-image-pro"
     dashscope_image_url: str = (
         "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
     )
@@ -134,8 +137,11 @@ class Settings(BaseSettings):
     daily_image_cap: int = 40
     daily_audio_cap: int = 60
     # Per-job cost rates (USD) — computed from actual duration/resolution/model at creation.
-    cost_per_video_sec_720p: float = 0.10
-    cost_per_video_sec_1080p: float = 0.15
+    # Video per-second rates for the default provider (HappyHorse-1.0): 720p $0.14/s, 1080p
+    # $0.28/s. r2v/video-edit run slightly higher but we keep one base rate per resolution.
+    # Drives est_spend_usd + per-user caps; set VIDEO_PROVIDER=wan → adjust to Wan's rates.
+    cost_per_video_sec_720p: float = 0.14
+    cost_per_video_sec_1080p: float = 0.28
     cost_per_image_usd: float = 0.03
     cost_per_image_pro_usd: float = 0.07
     cost_per_tts_usd: float = 0.02  # per synthesized voiceover line
