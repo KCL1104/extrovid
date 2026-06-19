@@ -12,7 +12,9 @@ from app.core.config import get_settings
 from app.core.http import request_with_retry
 from app.models.enums import AspectRatio
 
-# Qwen-Image-plus supported sizes, keyed by aspect ratio.
+# Pixel sizes keyed by aspect ratio. Accepted by both qwen-image and wan2.7-image-pro on the
+# DashScope multimodal-generation endpoint (Wan also takes "1K"/"2K"/"4K", but pixel dims encode
+# the aspect ratio the pipeline needs).
 _SIZE_BY_ASPECT = {
     AspectRatio.R9_16.value: "928*1664",
     AspectRatio.R16_9.value: "1664*928",

@@ -39,8 +39,11 @@ class Settings(BaseSettings):
 
     # --- Image generation (Qwen-Image, DashScope-native sync endpoint) ---
     use_mock_image: bool = True  # mock generator + in-memory storage (offline/free)
-    qwen_image_model: str = "qwen-image-plus"  # cheap; qwen-image-2.0-pro for higher quality
-    qwen_image_edit_model: str = "qwen-image-edit-plus"  # iterative look-frame refinement
+    # Image generation (concept frames / keyframes / portraits). wan2.7-image-pro = Wan2.7's Pro
+    # image model (up to 4K) — same DashScope multimodal-generation endpoint + request/response
+    # shape as qwen-image, so it's a drop-in model-id swap. Field name kept for blast radius.
+    qwen_image_model: str = "wan2.7-image-pro"
+    qwen_image_edit_model: str = "qwen-image-edit-plus"  # iterative look-frame refinement (qwen)
     dashscope_image_url: str = (
         "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
     )
