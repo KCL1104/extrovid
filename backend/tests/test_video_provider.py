@@ -1,0 +1,69 @@
+"""Video provider seam — offline (mock). Both providers ride the same DashScope transport and
+differ only by model id. HappyHorse-1.0 is the default; r2v (no HappyHorse model on DashScope)
+falls back to Wan r2v; VIDEO_PROVIDER=wan flips every mode back to Wan. These lock the dispatch +
+mode resolution and that a flag flip carries through generate -> ingest -> take.model.
+"""
+
+import pytest
+
+from app.core.config import Settings, get_settings
+from app.providers.video_factory import _resolve_video_model
+
+
+def test_resolve_model_maps_mode_to_provider(monkeypatch):
+    s = get_settings()
+    monkeypatch.setattr(s, "video_provider", "happyhorse")
+    assert "happyhorse-1.0-t2v" in _resolve_video_model(s, "t2v")
+    assert "happyhorse-1.0-i2v" in _resolve_video_model(s, "i2v")
+    assert "happyhorse-1.0-r2v" in _resolve_video_model(s, "r2v")
+    assert "video-edit" in _resolve_video_model(s, "videoedit")
+
+    monkeypatch.setattr(s, "video_provider", "wan")
+    assert _resolve_video_model(s, "t2v") == s.wan_t2v_model
+    assert _resolve_video_model(s, "i2v") == s.wan_i2v_model
+    assert _resolve_video_model(s, "r2v") == s.wan_r2v_model
+    assert _resolve_video_model(s, "videoedit") == s.wan_videoedit_model
+
+
+def test_video_provider_default_is_happyhorse():
+    assert Settings().video_provider == "happyhorse"
+
+
+def test_video_provider_rejects_unknown():
+    with pytest.raises(ValueError):
+        Settings(video_provider="midjourney")
+    assert Settings(video_provider="HAPPYHORSE").video_provider == "happyhorse"  # normalized
+
+
+async def _shot_with_take(client):
+    pid = (await client.post("/api/projects", json={"title": "HH"})).json()["id"]
+    await client.post(f"/api/projects/{pid}/run", json={"raw_prompt": "a 20s teaser"})
+    shot_id = (await client.get(f"/api/projects/{pid}/storyboard")).json()[0]["id"]
+    v = (await client.post(f"/api/projects/{pid}/shots/{shot_id}/generate")).json()
+    return pid, shot_id, v
+
+
+async def test_default_generate_routes_to_happyhorse(client):
+    """Default provider — a plain (t2v) shot routes to HappyHorse."""
+    _pid, _shot_id, v = await _shot_with_take(client)
+    assert v["output_asset_id"]  # mock generate succeeded
+    assert "happyhorse" in (v["model"] or "")
+
+
+async def test_default_videoedit_routes_to_happyhorse(client):
+    pid, shot_id, v = await _shot_with_take(client)
+    r = await client.post(
+        f"/api/projects/{pid}/shots/{shot_id}/versions/{v['id']}/edit",
+        json={"instruction": "change the background to night"},
+    )
+    assert r.status_code == 200
+    new = r.json()
+    assert "happyhorse" in (new["model"] or "")
+    assert "video-edit" in (new["model"] or "")
+
+
+async def test_wan_override_routes_to_wan(client, monkeypatch):
+    """VIDEO_PROVIDER=wan flips a plain shot back to the Wan model id."""
+    monkeypatch.setattr(get_settings(), "video_provider", "wan")
+    _pid, _shot_id, v = await _shot_with_take(client)
+    assert "wan2.7" in (v["model"] or "")
