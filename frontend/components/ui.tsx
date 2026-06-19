@@ -6,11 +6,27 @@ import {
   useRef,
   type ButtonHTMLAttributes,
   type CSSProperties,
+  type InputHTMLAttributes,
   type ReactNode,
 } from "react";
 
 export function cn(...xs: (string | false | null | undefined)[]) {
   return xs.filter(Boolean).join(" ");
+}
+
+// Shared text input — sunken bg-soft field with the standard amber focus ring.
+// The single form-field primitive; use it instead of hand-rolled input classes.
+export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <input
+      className={cn(
+        "w-full rounded-[var(--radius)] border border-border bg-bg-soft px-3 py-2 text-sm text-fg outline-none placeholder:text-faint",
+        "focus:border-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
+        className,
+      )}
+      {...props}
+    />
+  );
 }
 
 export function Button({
