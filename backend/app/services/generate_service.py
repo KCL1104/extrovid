@@ -14,6 +14,7 @@ relies on poll_and_ingest_job (called by the reconciler loop or the refresh endp
 import asyncio
 import uuid
 from datetime import UTC, datetime
+from math import ceil
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -53,6 +54,16 @@ def _now() -> datetime:
 
 def _ratio_for(aspect: str) -> str:
     return aspect if aspect in {"16:9", "9:16", "1:1"} else "9:16"
+
+
+def _clip_duration(sec: float) -> int:
+    """Clamp a planned shot length to the video models' supported clip range.
+
+    Floor is 3s: HappyHorse rejects <3s ("duration must be between 3 and 15 seconds") and 3s
+    is safe for Wan too. ceil (not round) so a 2.5s shot becomes 3s rather than banker's-
+    rounding down to 2.
+    """
+    return max(3, min(15, ceil(sec)))
 
 
 async def _scene_visual_brief(session: AsyncSession, shot: Shot) -> dict | None:
@@ -340,7 +351,7 @@ async def _activate_submission(
 
     project = await session.get(Project, project_id)
     ratio = _ratio_for(project.aspect_ratio if project else "")
-    duration = max(2, min(15, round(shot.duration_sec)))
+    duration = _clip_duration(shot.duration_sec)
 
     reference_urls = await _resolve_reference_urls(
         session, project_id, reference_asset_ids, character_id, shot=shot
