@@ -57,3 +57,49 @@ async def test_delete_project_with_rough_cut(client):
     await client.post(f"/api/projects/{pid}/rough-cut")
     r = await client.delete(f"/api/projects/{pid}")
     assert r.status_code == 204
+
+
+async def test_delete_project_with_published_cut(client):
+    """A project PUBLISHED to the gallery must delete cleanly: published_video FKs the cut's
+    TimelineSequence (a published delete used to 500 with a FK violation on Postgres). The
+    publish endpoint refuses mock videos, so seed the published_video row directly; assert it is
+    gone after delete (catches the fix even on SQLite, which doesn't enforce the FK)."""
+    from contextlib import aclosing
+
+    from sqlalchemy import select
+
+    from app.core.db import get_session
+    from app.main import app
+    from app.models.gallery import PublishedVideo
+
+    pid, shot_ids = await _project_with_shots(client)
+    await client.post(f"/api/projects/{pid}/shots/{shot_ids[0]}/generate")
+    cut = (await client.post(f"/api/projects/{pid}/rough-cut")).json()
+
+    # seed the published_video row directly (publish endpoint refuses mock videos), closing the
+    # session fully before the delete so it doesn't collide on the shared (StaticPool) connection
+    async with aclosing(app.dependency_overrides[get_session]()) as gen:
+        s = await gen.__anext__()
+        s.add(
+            PublishedVideo(
+                project_id=pid,
+                owner_id="test-user",
+                timeline_sequence_id=cut["id"],
+                output_asset_id="vid",
+                title="t",
+                aspect_ratio="16:9",
+            )
+        )
+        await s.commit()
+
+    r = await client.delete(f"/api/projects/{pid}")
+    assert r.status_code == 204
+
+    async with aclosing(app.dependency_overrides[get_session]()) as gen:
+        s = await gen.__anext__()
+        left = (
+            (await s.execute(select(PublishedVideo).where(PublishedVideo.project_id == pid)))
+            .scalars()
+            .all()
+        )
+    assert left == []  # the gallery share was cleaned up with the project
