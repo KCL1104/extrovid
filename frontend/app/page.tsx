@@ -105,7 +105,7 @@ export default function Dashboard() {
               />
             </label>
             <label>
-              <span className="text-xs text-faint">Aspect</span>
+              <span className="text-xs text-faint ml-3">Aspect</span>
               <select
                 value={aspect}
                 onChange={(e) => setAspect(e.target.value)}
@@ -119,7 +119,7 @@ export default function Dashboard() {
               </select>
             </label>
             <label>
-              <span className="text-xs text-faint">Seconds</span>
+              <span className="text-xs text-faint ml-3">Seconds</span>
               <input
                 type="number"
                 min={5}
