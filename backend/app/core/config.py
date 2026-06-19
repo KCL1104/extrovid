@@ -27,7 +27,8 @@ class Settings(BaseSettings):
     # --- LLM ---
     use_mock_llm: bool = True
     dashscope_api_key: str | None = None
-    qwen_model: str = "qwen3.6-plus"  # balanced default per docs.qwencloud.com model-selection
+    qwen_model: str = "qwen3.7-plus"  # balanced default (1M ctx, ~6x cheaper than max) for all
+    # non-script agents per docs.qwencloud.com model-selection
     # Script generation is the most creative/long-form step — route it to the flagship while
     # the other agents (brief/cast/storyboard/review/director) keep qwen_model. Qwen3.7-Max is
     # Alibaba's flagship ("The Agent Frontier"): 1M ctx, stronger creative writing + instruction
