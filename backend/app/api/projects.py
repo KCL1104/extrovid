@@ -1,6 +1,6 @@
 """Project CRUD endpoints."""
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, BackgroundTasks, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_owned_project
@@ -8,7 +8,7 @@ from app.core.auth import AuthCtx, current_auth
 from app.core.db import get_session
 from app.models.project import Project
 from app.schemas.api import ProjectCreate, ProjectRead, ProjectUpdate
-from app.services import project_service
+from app.services import asset_service, project_service
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -56,7 +56,12 @@ async def update(
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete(
+    background_tasks: BackgroundTasks,
     project: Project = Depends(get_owned_project),
     session: AsyncSession = Depends(get_session),
 ):
-    await project_service.delete_project(session, project)
+    # The DB delete is fast; the bucket cleanup (dozens of objects for a video project) runs
+    # AFTER the response so the request never outlives the proxy timeout ("Failed to fetch").
+    keys = await project_service.delete_project(session, project)
+    if keys:
+        background_tasks.add_task(asset_service.delete_objects, keys)

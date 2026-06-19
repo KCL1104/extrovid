@@ -147,9 +147,15 @@ async def delete_objects(keys: list[str]) -> None:
 
     def _delete() -> None:
         client = _s3_client()
-        for k in real:
+        # S3 batch-delete: up to 1000 keys per call — one round-trip instead of one per object
+        # (a media-heavy project has dozens of objects; per-object DELETEs were the slow path).
+        for i in range(0, len(real), 1000):
+            chunk = real[i : i + 1000]
             try:
-                client.delete_object(Bucket=bucket, Key=k)
+                client.delete_objects(
+                    Bucket=bucket,
+                    Delete={"Objects": [{"Key": k} for k in chunk], "Quiet": True},
+                )
             except Exception:  # noqa: BLE001 - cleanup is best-effort
                 pass
 
