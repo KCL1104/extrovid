@@ -40,7 +40,6 @@ import {
 } from "@/lib/api";
 import { streamSSE } from "@/lib/sse";
 import { Alert, Button, Eyebrow, Pill, Tabs } from "@/components/ui";
-import UsageBadge from "@/components/UsageBadge";
 import PlanPanel from "@/components/workspace/PlanPanel";
 import LookBoard from "@/components/workspace/LookBoard";
 import ShotBoard from "@/components/workspace/ShotBoard";
@@ -540,7 +539,6 @@ export default function Workspace({ projectId }: { projectId: string }) {
               {renderedShots}/{shots.length} shots
             </Pill>
           )}
-          <UsageBadge />
         </div>
       </div>
 

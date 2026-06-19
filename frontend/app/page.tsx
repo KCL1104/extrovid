@@ -8,7 +8,6 @@ import { Alert, Button, Eyebrow, Panel, Pill, ScoreBadge, StatusBadge, cn } from
 import Shell from "@/components/Shell";
 import { PROJECTS_CHANGED } from "@/components/Sidebar";
 import { relTime } from "@/components/workspace/shared";
-import UsageBadge from "@/components/UsageBadge";
 
 const ASPECTS = ["9:16", "16:9", "1:1", "4:5"];
 const focusRing = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
@@ -74,10 +73,7 @@ export default function Dashboard() {
     <Shell>
       <main className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-16 lg:px-8">
         <header className="rise">
-          <div className="flex items-center justify-between gap-3">
-            <Eyebrow>AI-native director · brief → rough cut</Eyebrow>
-            <UsageBadge />
-          </div>
+          <Eyebrow>AI-native director · brief → rough cut</Eyebrow>
           <h1 className="title mt-3 text-4xl text-fg sm:text-5xl lg:text-6xl">
             start a new <span className="italic text-accent">project</span>
           </h1>
@@ -105,7 +101,7 @@ export default function Dashboard() {
               />
             </label>
             <label>
-              <span className="text-xs text-faint ml-3">Aspect</span>
+              <span className="text-xs text-faint mr-3">Aspect</span>
               <select
                 value={aspect}
                 onChange={(e) => setAspect(e.target.value)}
@@ -119,7 +115,7 @@ export default function Dashboard() {
               </select>
             </label>
             <label>
-              <span className="text-xs text-faint ml-3">Seconds</span>
+              <span className="text-xs text-faint mr-3">Seconds</span>
               <input
                 type="number"
                 min={5}

@@ -486,8 +486,10 @@ export const listStylePacks = (id: string) => api<StylePack[]>(`/projects/${id}/
 export type Usage = {
   videos_today: number;
   images_today: number;
+  audio_today: number;
   video_cap: number;
   image_cap: number;
+  audio_cap: number;
   failed_today: number;
   est_spend_usd: number;
 };

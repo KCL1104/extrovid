@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createProject, listProjects, type Project } from "@/lib/api";
-import { clearAuth, getUser } from "@/lib/auth";
+import AccountMenu from "@/components/AccountMenu";
 import { Button, Spinner, cn } from "@/components/ui";
 
 // Fired by the dashboard/sidebar after a project is created or deleted, so both re-fetch.
@@ -16,7 +16,6 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
   const [creating, setCreating] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
-  const user = getUser();
 
   useEffect(() => {
     let live = true;
@@ -43,11 +42,6 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
     } catch {
       setCreating(false);
     }
-  }
-
-  function signOut() {
-    clearAuth();
-    window.location.assign("/");
   }
 
   function navItem(href: string, label: string) {
@@ -133,17 +127,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
         )}
       </div>
 
-      <div className="border-t border-border px-4 py-3">
-        {user && (
-          <p className="truncate text-xs text-faint">
-            {user.email}
-            {user.is_admin ? " · admin" : ""}
-          </p>
-        )}
-        <button onClick={signOut} className="mt-1 text-xs text-muted transition-colors hover:text-fg">
-          Sign out
-        </button>
-      </div>
+      <AccountMenu />
     </aside>
   );
 }
