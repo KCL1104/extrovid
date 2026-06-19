@@ -1,5 +1,6 @@
 """videoedit (NL shot revision) tests — offline (mock). Edits a generated take into a new
-take that preserves lineage and routes to wan2.7-videoedit."""
+take that preserves lineage and routes to the active provider's video-edit model
+(happyhorse-1.0-video-edit by default; wan2.7-videoedit under VIDEO_PROVIDER=wan)."""
 
 
 async def _shot_with_take(client):
@@ -20,7 +21,8 @@ async def test_edit_creates_new_take_via_videoedit(client):
     assert r.status_code == 200
     new = r.json()
     assert new["id"] != v["id"]
-    assert "videoedit" in (new["model"] or "")
+    # provider-agnostic: wan2.7-videoedit / happyhorse-1.0-video-edit both contain "edit"
+    assert "edit" in (new["model"] or "")
 
     versions = (await client.get(f"/api/projects/{pid}/shots/{shot_id}/versions")).json()
     assert len(versions) == 2

@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     use_mock_llm: bool = True
     dashscope_api_key: str | None = None
     qwen_model: str = "qwen3.6-plus"  # balanced default per docs.qwencloud.com model-selection
+    # Script generation is the most creative/long-form step — route it to the flagship while
+    # the other agents (brief/cast/storyboard/review/director) keep qwen_model. Qwen3.7-Max is
+    # Alibaba's flagship ("The Agent Frontier"): 1M ctx, stronger creative writing + instruction
+    # following. enable_thinking is still forced off in the factory (structured tool output).
+    qwen_script_model: str = "qwen3.7-max"
     dashscope_base_url: str = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
     llm_retries: int = 2
 
@@ -60,6 +65,17 @@ class Settings(BaseSettings):
     wan_i2v_model: str = "wan2.7-i2v"
     wan_r2v_model: str = "wan2.7-r2v"
     wan_videoedit_model: str = "wan2.7-videoedit"
+    # Video provider seam (see app/providers/video_factory.py). Both providers ride the SAME
+    # DashScope video-synthesis async endpoint + DASHSCOPE_API_KEY below — the flag only selects
+    # which model id each routing mode maps to. "happyhorse" = HappyHorse-1.0 (Alibaba; #1 on the
+    # Artificial Analysis Video Arena — T2V ~1374 / I2V ~1410 Elo, ~+140 over Wan — native audio +
+    # 7-language lip-sync). HappyHorse is the DEFAULT and has full t2v/i2v/r2v/video-edit parity on
+    # DashScope. Set VIDEO_PROVIDER=wan to route every mode back to Wan instead.
+    video_provider: str = "happyhorse"  # "happyhorse" | "wan"
+    happyhorse_t2v_model: str = "happyhorse-1.0-t2v"
+    happyhorse_i2v_model: str = "happyhorse-1.0-i2v"
+    happyhorse_r2v_model: str = "happyhorse-1.0-r2v"
+    happyhorse_videoedit_model: str = "happyhorse-1.0-video-edit"
     dashscope_video_url: str = (
         "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis"
     )
@@ -119,6 +135,14 @@ class Settings(BaseSettings):
     cost_per_image_usd: float = 0.03
     cost_per_image_pro_usd: float = 0.07
     cost_per_tts_usd: float = 0.02  # per synthesized voiceover line
+
+    @field_validator("video_provider", mode="after")
+    @classmethod
+    def _validate_video_provider(cls, v: str) -> str:
+        v = (v or "wan").lower()
+        if v not in ("wan", "happyhorse"):
+            raise ValueError("video_provider must be 'wan' or 'happyhorse'")
+        return v
 
     @field_validator("db_url", mode="after")
     @classmethod
