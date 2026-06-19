@@ -22,7 +22,8 @@ export default function Dashboard() {
   const [aspect, setAspect] = useState("9:16");
   const [duration, setDuration] = useState(20);
   const [creating, setCreating] = useState(false);
-  const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [confirmProject, setConfirmProject] = useState<Project | null>(null);
+  const [confirmText, setConfirmText] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const router = useRouter();
 
@@ -57,7 +58,8 @@ export default function Dashboard() {
   }
 
   async function remove(id: string) {
-    setConfirmId(null);
+    setConfirmProject(null);
+    setConfirmText("");
     setProjects((p) => p?.filter((x) => x.id !== id) ?? null);
     try {
       await deleteProject(id);
@@ -185,39 +187,17 @@ export default function Dashboard() {
                       <h3 className="title min-w-0 flex-1 truncate text-2xl text-fg transition-colors group-hover:text-accent">
                         {p.title}
                       </h3>
-                      {confirmId === p.id ? (
-                        <span className="flex shrink-0 items-center gap-1.5 font-mono text-xs">
-                          <button
-                            onClick={(e) => {
-                              e.preventDefault();
-                              remove(p.id);
-                            }}
-                            className="rounded px-1.5 py-0.5 text-fail hover:bg-fail/10"
-                          >
-                            delete
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.preventDefault();
-                              setConfirmId(null);
-                            }}
-                            className="rounded px-1.5 py-0.5 text-faint hover:text-fg"
-                          >
-                            cancel
-                          </button>
-                        </span>
-                      ) : (
-                        <button
-                          onClick={(e) => {
-                            e.preventDefault();
-                            setConfirmId(p.id);
-                          }}
-                          aria-label={`Delete ${p.title}`}
-                          className="-m-2 shrink-0 p-2 text-faint transition-opacity hover:text-fail [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100"
-                        >
-                          ✕
-                        </button>
-                      )}
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setConfirmText("");
+                          setConfirmProject(p);
+                        }}
+                        aria-label={`Delete ${p.title}`}
+                        className="-m-2 shrink-0 p-2 text-faint transition-opacity hover:text-fail [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100"
+                      >
+                        ✕
+                      </button>
                     </div>
                     <div className="mt-4 flex flex-wrap items-center gap-2">
                       <StatusBadge status={p.status} />
@@ -262,6 +242,56 @@ export default function Dashboard() {
             </div>
           )}
         </section>
+
+        {confirmProject && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+            role="dialog"
+            aria-modal="true"
+            onClick={() => setConfirmProject(null)}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-md rounded-[var(--radius)] border border-fail/30 bg-panel p-6 shadow-2xl"
+            >
+              <h2 className="title text-xl text-fg">Delete this project?</h2>
+              <p className="mt-2 text-sm leading-relaxed text-muted">
+                This permanently deletes{" "}
+                <span className="text-fg">“{confirmProject.title}”</span> — its scenes, shots,
+                generated images and videos, and any cut. This can’t be undone.
+              </p>
+              <label className="mt-4 block">
+                <span className="text-xs text-faint">
+                  Type <span className="font-mono text-fg">{confirmProject.title}</span> to confirm
+                </span>
+                <input
+                  autoFocus
+                  value={confirmText}
+                  onChange={(e) => setConfirmText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") setConfirmProject(null);
+                    if (e.key === "Enter" && confirmText.trim() === confirmProject.title.trim())
+                      remove(confirmProject.id);
+                  }}
+                  placeholder={confirmProject.title}
+                  className={`${field} ${focusRing}`}
+                />
+              </label>
+              <div className="mt-5 flex justify-end gap-2">
+                <Button variant="ghost" onClick={() => setConfirmProject(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="danger"
+                  disabled={confirmText.trim() !== confirmProject.title.trim()}
+                  onClick={() => remove(confirmProject.id)}
+                >
+                  Delete project
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </Shell>
   );

@@ -14,7 +14,6 @@ from app.models.shot import Shot
 from app.models.source import SourceEvent
 from app.models.timeline import TimelineSequence
 from app.schemas.api import ProjectCreate, ProjectStats, ProjectUpdate
-from app.services import asset_service
 
 
 async def create_project(session: AsyncSession, owner_id: str, data: ProjectCreate) -> Project:
@@ -110,7 +109,15 @@ async def update_project(session: AsyncSession, project: Project, data: ProjectU
     return project
 
 
-async def delete_project(session: AsyncSession, project: Project) -> None:
+async def delete_project(session: AsyncSession, project: Project) -> list[str]:
+    """Delete the project + all dependent rows, and RETURN the bucket keys to clean.
+
+    The bucket cleanup is deliberately NOT done here: a media-heavy project (videos, takes,
+    thumbnails, keyframes, portraits, cut) can have dozens of objects, and deleting them inline
+    made the request outlive the edge-proxy timeout — the browser saw "Failed to fetch" even
+    though the DB delete had committed. The caller schedules ``asset_service.delete_objects`` as
+    a background task so the response returns immediately.
+    """
     pid = project.id
     # Remove dependent rows CHILD-FIRST (no DB-level cascade configured). Order matters —
     # the FK chain is: GenerationJob -> ShotVersion -> Shot; Shot -> LookFrame (via
@@ -154,4 +161,4 @@ async def delete_project(session: AsyncSession, project: Project) -> None:
     await session.execute(delete(ImageAsset).where(ImageAsset.project_id == pid))
     await session.delete(project)
     await session.commit()
-    await asset_service.delete_objects(list(keys))  # best-effort bucket cleanup
+    return list(keys)  # caller cleans the bucket off the request path
