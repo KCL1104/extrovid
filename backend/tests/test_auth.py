@@ -89,3 +89,86 @@ async def test_login_flow(raw_client):
         "/api/auth/login", json={"email": "log@b.com", "password": "wrong-pass"}
     )
     assert bad.status_code == 401
+
+
+async def test_me_exposes_account_fields(raw_client):
+    r = await raw_client.post(
+        "/api/auth/register", json={"email": "fields@b.com", "password": "password123"}
+    )
+    token = r.json()["token"]
+    me = (await raw_client.get("/api/auth/me", headers=_hdr(token))).json()
+    assert me["has_password"] is True
+    assert me["is_google"] is False
+    assert me["created_at"]  # ISO timestamp present
+
+
+async def test_change_password_flow(raw_client):
+    reg = await raw_client.post(
+        "/api/auth/register", json={"email": "cp@b.com", "password": "password123"}
+    )
+    token = reg.json()["token"]
+    ok = await raw_client.post(
+        "/api/auth/change-password",
+        json={"current_password": "password123", "new_password": "newpassword456"},
+        headers=_hdr(token),
+    )
+    assert ok.status_code == 204
+    # change-password does NOT rotate the token: the current device stays signed in.
+    # (Check this BEFORE logging in — a successful login re-issues the token.)
+    assert (await raw_client.get("/api/auth/me", headers=_hdr(token))).status_code == 200
+    # old password no longer works; the new one does
+    assert (
+        await raw_client.post(
+            "/api/auth/login", json={"email": "cp@b.com", "password": "password123"}
+        )
+    ).status_code == 401
+    assert (
+        await raw_client.post(
+            "/api/auth/login", json={"email": "cp@b.com", "password": "newpassword456"}
+        )
+    ).status_code == 200
+
+
+async def test_change_password_rejects_wrong_current(raw_client):
+    reg = await raw_client.post(
+        "/api/auth/register", json={"email": "cpw@b.com", "password": "password123"}
+    )
+    token = reg.json()["token"]
+    r = await raw_client.post(
+        "/api/auth/change-password",
+        json={"current_password": "not-it", "new_password": "newpassword456"},
+        headers=_hdr(token),
+    )
+    assert r.status_code == 403
+
+
+async def test_change_password_rejects_short(raw_client):
+    reg = await raw_client.post(
+        "/api/auth/register", json={"email": "cps@b.com", "password": "password123"}
+    )
+    token = reg.json()["token"]
+    r = await raw_client.post(
+        "/api/auth/change-password",
+        json={"current_password": "password123", "new_password": "short"},
+        headers=_hdr(token),
+    )
+    assert r.status_code == 422
+
+
+async def test_delete_account_removes_user_and_projects(raw_client):
+    reg = await raw_client.post(
+        "/api/auth/register", json={"email": "del@b.com", "password": "password123"}
+    )
+    token = reg.json()["token"]
+    # owns a project — deletion must cascade it without erroring
+    created = await raw_client.post("/api/projects", json={}, headers=_hdr(token))
+    assert created.status_code == 201
+    gone = await raw_client.delete("/api/auth/me", headers=_hdr(token))
+    assert gone.status_code == 204
+    # the token (and account) no longer authenticate
+    assert (await raw_client.get("/api/auth/me", headers=_hdr(token))).status_code == 401
+    assert (
+        await raw_client.post(
+            "/api/auth/login", json={"email": "del@b.com", "password": "password123"}
+        )
+    ).status_code == 401

@@ -5,7 +5,9 @@ app WITHOUT the global ``current_auth`` dependency. ``router`` holds the gated r
 (/me, /rotate-token, /logout) and is mounted under the authenticated ``api_router``.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from datetime import UTC, datetime
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,8 +15,14 @@ from app.core.auth import AuthCtx, current_auth
 from app.core.config import get_settings
 from app.core.db import get_session
 from app.core.logging import log
-from app.schemas.api import AuthResponse, LoginRequest, RegisterRequest, UserRead
-from app.services import auth_service, google_oauth
+from app.schemas.api import (
+    AuthResponse,
+    ChangePasswordRequest,
+    LoginRequest,
+    RegisterRequest,
+    UserRead,
+)
+from app.services import asset_service, auth_service, google_oauth, project_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])  # gated
 public_router = APIRouter(prefix="/auth", tags=["auth"])  # un-gated
@@ -34,7 +42,7 @@ async def register(body: RegisterRequest, session: AsyncSession = Depends(get_se
     except auth_service.AuthError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail) from None
     log.info("auth.register user=%s", user.id)
-    return AuthResponse(token=token, user=UserRead.model_validate(user))
+    return AuthResponse(token=token, user=UserRead.from_user(user))
 
 
 @public_router.post("/login", response_model=AuthResponse)
@@ -44,7 +52,7 @@ async def login(body: LoginRequest, session: AsyncSession = Depends(get_session)
         raise HTTPException(status_code=401, detail="invalid email or password")
     token = await auth_service.issue_token(session, user)
     log.info("auth.login user=%s", user.id)
-    return AuthResponse(token=token, user=UserRead.model_validate(user))
+    return AuthResponse(token=token, user=UserRead.from_user(user))
 
 
 @public_router.get("/google/login")
@@ -83,9 +91,53 @@ async def google_callback(request: Request, session: AsyncSession = Depends(get_
 async def me(auth: AuthCtx = Depends(current_auth)):
     if auth.user is None:  # env admin master token
         return UserRead(
-            id="admin", email="admin", is_admin=True, daily_video_cap=0, daily_image_cap=0
+            id="admin",
+            email="admin",
+            is_admin=True,
+            daily_video_cap=0,
+            daily_image_cap=0,
+            created_at=datetime.now(UTC).replace(tzinfo=None),
+            has_password=True,
+            is_google=False,
         )
-    return UserRead.model_validate(auth.user)
+    return UserRead.from_user(auth.user)
+
+
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+async def change_password(
+    body: ChangePasswordRequest,
+    auth: AuthCtx = Depends(current_auth),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    if auth.user is None:
+        raise HTTPException(status_code=400, detail="the admin account is managed via env, not here")
+    try:
+        await auth_service.change_password(
+            session, auth.user, body.current_password, body.new_password
+        )
+    except auth_service.AuthError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail) from None
+    log.info("auth.change_password user=%s", auth.user.id)
+
+
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_me(
+    background_tasks: BackgroundTasks,
+    auth: AuthCtx = Depends(current_auth),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    if auth.user is None:
+        raise HTTPException(status_code=400, detail="the admin account is managed via env, not here")
+    # Cascade the user's projects first (same child-first delete the project endpoint uses), then
+    # the user row. Bucket cleanup runs after the response so the request never outlives the proxy.
+    projects = await project_service.list_projects(session, owner_id=auth.user.id, is_admin=False)
+    keys: list[str] = []
+    for project in projects:
+        keys.extend(await project_service.delete_project(session, project))
+    await auth_service.delete_user(session, auth.user)
+    log.info("auth.delete_user user=%s projects=%d", auth.user.id, len(projects))
+    if keys:
+        background_tasks.add_task(asset_service.delete_objects, keys)
 
 
 @router.post("/rotate-token")

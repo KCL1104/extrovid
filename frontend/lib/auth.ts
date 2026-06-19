@@ -11,7 +11,23 @@ export type AuthUser = {
   is_admin: boolean;
   daily_video_cap: number;
   daily_image_cap: number;
+  created_at?: string; // ISO; absent on older cached records
+  has_password?: boolean;
+  is_google?: boolean;
 };
+
+// Token as an external store: the localStorage value, invalidated by the 401 broadcast or a
+// cross-tab `storage` write. Shared by AuthGate and the public gallery (to decide app-shell vs
+// bare layout). Server snapshot is null so SSR + first client render agree.
+export function subscribeToken(onChange: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener("extrovid-unauthorized", onChange);
+  window.addEventListener("storage", onChange);
+  return () => {
+    window.removeEventListener("extrovid-unauthorized", onChange);
+    window.removeEventListener("storage", onChange);
+  };
+}
 
 export const getToken = (): string | null =>
   typeof window !== "undefined" ? localStorage.getItem(KEY) : null;

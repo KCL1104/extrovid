@@ -42,6 +42,29 @@ class UserRead(BaseModel):
     is_admin: bool
     daily_video_cap: int
     daily_image_cap: int
+    created_at: datetime | None = None
+    # Derived flags (not columns) — let the settings UI show the sign-in method.
+    has_password: bool = False
+    is_google: bool = False
+
+    @classmethod
+    def from_user(cls, user) -> "UserRead":
+        return cls(
+            id=user.id,
+            email=user.email,
+            is_admin=user.is_admin,
+            daily_video_cap=user.daily_video_cap,
+            daily_image_cap=user.daily_image_cap,
+            created_at=user.created_at,
+            has_password=user.password_hash is not None,
+            is_google=user.google_sub is not None,
+        )
+
+
+class ChangePasswordRequest(BaseModel):
+    # current_password omitted when a Google-only account sets its first password.
+    current_password: str | None = None
+    new_password: str
 
 
 class AuthResponse(BaseModel):

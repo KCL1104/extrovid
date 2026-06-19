@@ -78,6 +78,28 @@ async def register(session: AsyncSession, email: str, password: str) -> tuple[Us
     return user, raw
 
 
+async def change_password(
+    session: AsyncSession, user: User, current_password: str | None, new_password: str
+) -> None:
+    """Set a new password. Accounts that already have one must prove the current password;
+    Google-only accounts (no password) set their first without one. Does NOT rotate the token —
+    the current device stays signed in; "reset access" (rotate_token) is the explicit revoke."""
+    if len(new_password) < 8:
+        raise AuthError(422, "password must be at least 8 characters")
+    if user.password_hash is not None:
+        if not current_password or not verify_password(current_password, user.password_hash):
+            raise AuthError(403, "current password is incorrect")
+    user.password_hash = hash_password(new_password)
+    session.add(user)
+    await session.commit()
+
+
+async def delete_user(session: AsyncSession, user: User) -> None:
+    """Delete the user row. The caller is responsible for cascading the user's projects first."""
+    await session.delete(user)
+    await session.commit()
+
+
 async def authenticate(session: AsyncSession, email: str, password: str) -> User | None:
     user = await get_by_email(session, email)
     if user is None or not user.password_hash:

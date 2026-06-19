@@ -2,24 +2,13 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
-import { getToken, setUser } from "@/lib/auth";
+import { getToken, setUser, subscribeToken } from "@/lib/auth";
 import { me } from "@/lib/api";
 import AuthScreen from "@/components/AuthScreen";
 import Landing from "@/components/Landing";
 
 // Routes that render without a session (the public gallery + the OAuth landing).
 const PUBLIC_PREFIXES = ["/gallery", "/auth/callback"];
-
-// Token as an external store: localStorage value, invalidated by the 401 broadcast.
-// Server snapshot is null so SSR + first client render agree (no hydration gate needed).
-function subscribeToken(onChange: () => void) {
-  window.addEventListener("extrovid-unauthorized", onChange);
-  window.addEventListener("storage", onChange);
-  return () => {
-    window.removeEventListener("extrovid-unauthorized", onChange);
-    window.removeEventListener("storage", onChange);
-  };
-}
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const storedToken = useSyncExternalStore(subscribeToken, getToken, () => null);

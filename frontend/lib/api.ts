@@ -312,6 +312,13 @@ export const login = (email: string, password: string) =>
 export const me = () => api<AuthUser>("/auth/me");
 export const rotateToken = () => api<{ token: string }>("/auth/rotate-token", { method: "POST" });
 export const logout = () => api<void>("/auth/logout", { method: "POST" });
+// current_password omitted for a Google-only account setting its first password
+export const changePassword = (new_password: string, current_password?: string) =>
+  api<void>("/auth/change-password", {
+    method: "POST",
+    body: JSON.stringify(current_password ? { current_password, new_password } : { new_password }),
+  });
+export const deleteAccount = () => api<void>("/auth/me", { method: "DELETE" });
 export const googleLoginUrl = () => `${API_BASE}/auth/google/login`;
 
 // ── gallery ──
