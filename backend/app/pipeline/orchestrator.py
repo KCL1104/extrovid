@@ -15,6 +15,7 @@ from app.agents.cast_agent import cast_agent
 from app.agents.clarify_agent import clarify_agent
 from app.agents.script_agent import script_agent
 from app.agents.storyboard_agent import scene_storyboard_agent
+from app.agents.tiers import Tier, scene_shot_tier_block, script_tier_block, tier_for
 from app.agents.visual_dev_agent import visual_dev_agent
 from app.core.agent_run import run_agent
 from app.models.enums import MAX_SCENE_DURATION_SEC
@@ -72,6 +73,7 @@ def build_script_prompt(
         f"Style: {brief.style}\n"
         f"Audience: {brief.audience}\n"
         f"Target duration: {brief.target_duration_sec}s\n"
+        + script_tier_block(tier_for(brief.target_duration_sec), brief.target_duration_sec)
         + creative_direction_block(clarifications)
     )
 
@@ -123,6 +125,7 @@ def build_scene_storyboard_prompt(
     clarifications: list[ClarifyAnswer] | None = None,
     cast: list[CastMember] | None = None,
     prev_tail: str | None = None,
+    tier: Tier | None = None,
 ) -> str:
     beats = "; ".join(
         " ".join(filter(None, [b.description, b.narration, b.dialogue])) for b in scene.beats
@@ -164,6 +167,7 @@ def build_scene_storyboard_prompt(
         f"Beats: {beats}"
         + direction
         + continuity
+        + (scene_shot_tier_block(tier, budget_sec, scene.order) if tier else "")
         + cast_block(cast)
         + creative_direction_block(clarifications)
     )
@@ -286,6 +290,7 @@ async def run_storyboard(
     briefs_by_order = {vb.scene_order: vb for vb in visual_briefs}
     total_est = sum(s.est_duration_sec for s in script.scenes) or 1.0
     scale = target_duration_sec / total_est
+    tier = tier_for(target_duration_sec)  # pacing/ASL guidance scales with overall length
 
     scenes_out: list[StoryboardScene] = []
     next_order = 0
@@ -296,7 +301,13 @@ async def run_storyboard(
         result = await run_agent(
             scene_storyboard_agent,
             build_scene_storyboard_prompt(
-                scene, briefs_by_order.get(scene.order), budget, clarifications, cast, prev_tail
+                scene,
+                briefs_by_order.get(scene.order),
+                budget,
+                clarifications,
+                cast,
+                prev_tail,
+                tier,
             ),
             deps=budget,
         )

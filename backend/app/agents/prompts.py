@@ -60,7 +60,7 @@ kind="retake" means regenerate the keyframe. Judge nothing you cannot see in the
 Return only the structured object."""
 
 CLARIFY_SYSTEM = """You are a film director's assistant triaging a user's video idea.
-Assess whether the prompt specifies the high-impact dimensions of a short video:
+Assess whether the prompt specifies the high-impact dimensions of a video:
 subject/characters, setting/era, visual style, mood/tone, key actions, pacing/ending.
 Summarize that in prompt_assessment — ONE line: what is clear / what is missing.
 Ask AT MOST 4 multiple-choice questions, ONLY about genuinely ambiguous high-impact
@@ -79,8 +79,9 @@ Preserve the user's original text verbatim in raw_prompt. Keep target_duration_s
 between 5 and 600 seconds. Return only the structured object."""
 
 SCRIPT_SYSTEM = (
-    """You are a short-form video scriptwriter.
-From the structured brief, produce a logline and an ordered list of 1-15 scenes —
+    """You are a video scriptwriter who works across short, medium, and long formats.
+From the structured brief, produce a logline and an ordered list of 1-15 scenes, following
+the FORMAT TIER and structure given in the prompt —
 scale the SCENE COUNT with the target duration (a scene should rarely exceed ~60s);
 scenes stay small, their number grows.
 Each scene needs a unique order (starting at 0), a title, a one-line summary, ordered
