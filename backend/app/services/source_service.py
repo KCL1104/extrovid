@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.cast_agent import cast_agent
 from app.agents.source_agent import compressor_agent, event_agent, scene_import_agent
+from app.core.agent_run import run_agent
 from app.core.logging import log
 from app.models.enums import MAX_SCENES, ProjectStatus
 from app.models.project import Project
@@ -35,16 +36,17 @@ async def _compress(text: str) -> str:
         chunks.append(text[start : start + CHUNK_CHARS])
         start += CHUNK_CHARS - CHUNK_OVERLAP
     compressed_parts = [
-        (await compressor_agent.run(f"Compress this chunk:\n{c}")).output for c in chunks
+        (await run_agent(compressor_agent, f"Compress this chunk:\n{c}")).output for c in chunks
     ]
     joined = "\n".join(compressed_parts)
     if len(compressed_parts) == 1:
         return joined
     # aggregate pass resolves the overlap duplicates (later chunk wins)
     return (
-        await compressor_agent.run(
+        await run_agent(
+            compressor_agent,
             "Splice these overlapping compressed chunks into one coherent retelling, "
-            f"resolving duplicated boundaries (keep the later version):\n{joined}"
+            f"resolving duplicated boundaries (keep the later version):\n{joined}",
         )
     ).output
 
@@ -72,7 +74,8 @@ async def _extract_events(
     while not (events and events[-1].is_last) and len(events) < MAX_EVENTS:
         idx = len(events)
         prior = "\n".join(f"[{e.index}] {e.description}" for e in events) or "(none yet)"
-        result = await event_agent.run(
+        result = await run_agent(
+            event_agent,
             f"EVENT_INDEX={idx}\nPreviously extracted events:\n{prior}\n\nSource:\n{source}",
             deps=idx,
         )
@@ -103,8 +106,9 @@ async def import_source(session: AsyncSession, project_id: str, text: str) -> di
             log.warning("import.scenes_truncated project=%s at=%d", project_id, len(all_scenes))
             break
         steps = "; ".join(str(s) for s in event.process_chain)
-        result = await scene_import_agent.run(
-            f"EVENT_INDEX={event.index}\nEvent: {event.description}\nCausal steps: {steps}"
+        result = await run_agent(
+            scene_import_agent,
+            f"EVENT_INDEX={event.index}\nEvent: {event.description}\nCausal steps: {steps}",
         )
         for scene in result.output.scenes:
             if len(all_scenes) >= MAX_SCENES:
@@ -118,7 +122,7 @@ async def import_source(session: AsyncSession, project_id: str, text: str) -> di
     await planning_service.replace_scenes(session, project_id, script)
 
     # cast from the compressed source — canonical-name grouping does the alignment
-    cast = (await cast_agent.run(f"Extract the cast from this source:\n{source}")).output
+    cast = (await run_agent(cast_agent, f"Extract the cast from this source:\n{source}")).output
     profiles = await memory_service.upsert_cast(session, project_id, cast.characters)
 
     project = await session.get(Project, project_id)

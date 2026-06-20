@@ -9,6 +9,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.revise_agent import revise_scene_agent, revise_shot_agent, revise_visual_agent
+from app.core.agent_run import run_agent
 from app.core.logging import log
 from app.models.concept import VisualConceptSet
 from app.models.scene import Scene
@@ -45,8 +46,9 @@ async def revise_scene(
         beats=scene.beats,
         est_duration_sec=scene.est_duration_sec,
     )
-    result = await revise_scene_agent.run(
-        _revise_prompt("scene", draft.model_dump_json(), instruction, scene.order)
+    result = await run_agent(
+        revise_scene_agent,
+        _revise_prompt("scene", draft.model_dump_json(), instruction, scene.order),
     )
     revised = result.output
     scene.title = revised.title
@@ -83,10 +85,11 @@ async def revise_visual_brief(
     if cs is None or not cs.visual_brief:
         raise LookupError("visual brief not found for that scene")
     current = VisualBrief.model_validate(cs.visual_brief)
-    result = await revise_visual_agent.run(
+    result = await run_agent(
+        revise_visual_agent,
         _revise_prompt(
             "visual brief", current.model_dump_json(), instruction, current.scene_order
-        )
+        ),
     )
     cs.visual_brief = result.output.model_dump(mode="json")
     cs.stale = False
@@ -123,8 +126,9 @@ async def revise_shot(
         motion_desc=shot.motion_desc,
         variation_type=shot.variation_type,
     )
-    result = await revise_shot_agent.run(
-        _revise_prompt("shot", dto.model_dump_json(), instruction, shot.scene_order)
+    result = await run_agent(
+        revise_shot_agent,
+        _revise_prompt("shot", dto.model_dump_json(), instruction, shot.scene_order),
     )
     revised = result.output
     shot.purpose = revised.purpose

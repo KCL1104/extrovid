@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.review_agent import keyframe_review_agent, review_agent
+from app.core.agent_run import run_agent
 from app.core.config import get_settings
 from app.core.logging import log
 from app.models.concept import LookFrame, VisualConceptSet
@@ -142,7 +143,7 @@ async def review_version(session: AsyncSession, version: ShotVersion) -> ShotVer
                         images.append(ImageUrl(url=prev_url))
             user_input = [prompt, *images]
 
-    result = (await review_agent.run(user_input)).output
+    result = (await run_agent(review_agent, user_input)).output
     version.score = result.score
     version.review = result.model_dump(mode="json")
     version.status = (
@@ -227,7 +228,7 @@ async def review_keyframe(
                         images.append(ImageUrl(url=p_url))
             user_input = [prompt, *images]
 
-    result = (await keyframe_review_agent.run(user_input)).output
+    result = (await run_agent(keyframe_review_agent, user_input)).output
     frame.score = result.score
     frame.review = result.model_dump(mode="json")
     session.add(frame)

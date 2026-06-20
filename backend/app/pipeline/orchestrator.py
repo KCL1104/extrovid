@@ -16,6 +16,7 @@ from app.agents.clarify_agent import clarify_agent
 from app.agents.script_agent import script_agent
 from app.agents.storyboard_agent import scene_storyboard_agent
 from app.agents.visual_dev_agent import visual_dev_agent
+from app.core.agent_run import run_agent
 from app.models.enums import MAX_SCENE_DURATION_SEC
 from app.schemas.api import ClarifyAnswer, ClarifyResult
 from app.schemas.pipeline import (
@@ -216,33 +217,35 @@ def build_storyboard_prompt(
 
 async def run_clarify(raw_prompt: str) -> ClarifyResult:
     """Stateless plan-stage triage: should we ask the user clarifying questions first?"""
-    result = await clarify_agent.run(raw_prompt)
+    result = await run_agent(clarify_agent, raw_prompt)
     return result.output
 
 
 async def run_brief(
     raw_prompt: str, clarifications: list[ClarifyAnswer] | None = None
 ) -> BriefInput:
-    result = await brief_agent.run(fold_clarifications(raw_prompt, clarifications))
+    result = await run_agent(brief_agent, fold_clarifications(raw_prompt, clarifications))
     return result.output
 
 
 async def run_script(
     brief: BriefInput, clarifications: list[ClarifyAnswer] | None = None
 ) -> ScriptDraft:
-    result = await script_agent.run(build_script_prompt(brief, clarifications), deps=brief)
+    result = await run_agent(script_agent, build_script_prompt(brief, clarifications), deps=brief)
     return result.output
 
 
 async def run_cast(script: ScriptDraft) -> list[CastMember]:
-    result = await cast_agent.run(build_cast_prompt(script))
+    result = await run_agent(cast_agent, build_cast_prompt(script))
     return result.output.characters
 
 
 async def run_visual_plan(
     scene: SceneDraft, clarifications: list[ClarifyAnswer] | None = None
 ) -> SceneVisualPlan:
-    result = await visual_dev_agent.run(build_visual_prompt(scene, clarifications), deps=scene)
+    result = await run_agent(
+        visual_dev_agent, build_visual_prompt(scene, clarifications), deps=scene
+    )
     return result.output
 
 
@@ -290,7 +293,8 @@ async def run_storyboard(
     prev_tail: str | None = None
     for scene in sorted(script.scenes, key=lambda s: s.order):
         budget = min(MAX_SCENE_DURATION_SEC, round(scene.est_duration_sec * scale, 1))
-        result = await scene_storyboard_agent.run(
+        result = await run_agent(
+            scene_storyboard_agent,
             build_scene_storyboard_prompt(
                 scene, briefs_by_order.get(scene.order), budget, clarifications, cast, prev_tail
             ),
