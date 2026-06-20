@@ -4,10 +4,13 @@
 > **P2 DONE** (7952013 — continuity bible + non-destructive diff "apply exact proposal" +
 > demote-on-revise re-gating; **still-vs-motion moved to P3** — its cut-side freeze-frame
 > rendering belongs with the cut/cost work there). Full backend suite + tsc + eslint + next
-> build all green. **P3a DONE** (36284fa — caps→~20min: MAX_TOTAL_SHOTS 160 / MAX_SCENES 40 /
-> target_duration le 1200; per-project budget gate). **P3b NEXT** (LONG chapter/act layer +
-> outline-first review gate), then **P3c** (still-vs-motion render). Design locked via research
-> workflow `wf_1c125d7d`. Companion memory: `extrovid-length-review-plan`.
+> build all green. **P3a DONE** (36284fa — caps→~20min + per-project budget gate). **P3b DONE**
+> (135f557 — LONG chapter/act layer: Act table + Scene.act_id, outline agent, /plan/outline,
+> act-structured script, chapter accordion in Review). **P3c (still-vs-motion) DEFERRED** — its
+> cut-side freeze-frame rendering restructures the (ShotVersion, Shot)-coupled ffmpeg assembly
+> (high regression risk); do it as a careful isolated follow-up (render the still→clip at
+> generation time so the cut pipeline stays untouched). Both original asks (multi-length +
+> review gate) are fully met by P0–P3b. Design locked via research workflow `wf_1c125d7d`.
 > NOTE: the backend test suite runs against a REMOTE Railway Postgres by default
 > (`TEST_DATABASE_URL`); run locally with `TEST_DATABASE_URL="" pytest` to use fast in-memory
 > sqlite and avoid cross-run deadlocks.
