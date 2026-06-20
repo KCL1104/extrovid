@@ -163,8 +163,16 @@ async def revise_artifact(
     project_id: str, body: ReviseRequest, session: AsyncSession = Depends(get_session)
 ):
     """Targeted revision of ONE artifact ('scene:{id}' | 'visual_brief:{scene_id}' |
-    'shot:{id}') with a downstream staleness cascade — no whole-stage regeneration."""
+    'shot:{id}') with a downstream staleness cascade — no whole-stage regeneration.
+
+    ``dry_run`` returns a non-destructive before/after proposal (the review-gate diff)
+    without committing; the caller commits by re-POSTing with ``dry_run=false``."""
     try:
+        if body.dry_run:
+            proposal = await revise_service.propose(
+                session, project_id, body.target, body.instruction
+            )
+            return {"target": body.target, "dry_run": True, **proposal}
         revised = await revise_service.revise(session, project_id, body.target, body.instruction)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from None

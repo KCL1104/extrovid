@@ -1,6 +1,7 @@
 """Shot table."""
 
 import uuid
+from datetime import datetime
 
 from sqlalchemy import JSON, Column
 from sqlmodel import Field, SQLModel
@@ -51,3 +52,7 @@ class Shot(SQLModel, table=True):
     last_keyframe_frame_id: str | None = Field(default=None, foreign_key="lookframe.id")
     # set when an upstream artifact (scene/brief) changed after this shot was planned
     stale: bool = Field(default=False)
+    # review gate (P1): signed off by the human, and frozen against bulk regeneration
+    approved: bool = Field(default=False)
+    locked: bool = Field(default=False)
+    approved_at: datetime | None = Field(default=None)

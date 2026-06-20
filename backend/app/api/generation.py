@@ -17,6 +17,8 @@ from app.core.auth import AuthCtx, current_auth
 from app.core.config import get_settings
 from app.core.db import get_session
 from app.models.generation import GenerationJob, ShotVersion
+from app.models.project import Project
+from app.models.scene import Scene
 from app.models.shot import Shot
 from app.schemas.api import (
     BatchGenerateRequest,
@@ -25,12 +27,23 @@ from app.schemas.api import (
     JobRead,
     ShotVersionRead,
 )
-from app.services import generate_service, planning_service, review_service
+from app.services import (
+    generate_service,
+    planning_service,
+    review_gate_service,
+    review_service,
+)
 from app.services.asset_service import asset_url
 
 router = APIRouter(
     prefix="/projects/{project_id}", tags=["generation"], dependencies=[Depends(get_owned_project)]
 )
+
+
+def _gate(blockers: list[str]) -> None:
+    """Block generation for gated tiers until the plan is approved at the review gate."""
+    if blockers:
+        raise HTTPException(status_code=409, detail="; ".join(blockers))
 
 
 @router.get("/events")
@@ -100,10 +113,12 @@ async def generate_shot(
     project_id: str,
     shot_id: str,
     body: GenerateShotRequest | None = None,
+    project: Project = Depends(get_owned_project),
     auth: AuthCtx = Depends(current_auth),
     session: AsyncSession = Depends(get_session),
 ):
     shot = await _shot_or_404(session, project_id, shot_id)
+    _gate(review_gate_service.shot_generation_blockers(project, shot))
     try:
         takes = await generate_service.submit_shot_batch(
             session,
@@ -135,6 +150,7 @@ async def generate_scene(
     project_id: str,
     scene_order: int,
     body: BatchGenerateRequest | None = None,
+    project: Project = Depends(get_owned_project),
     auth: AuthCtx = Depends(current_auth),
     session: AsyncSession = Depends(get_session),
 ):
@@ -147,6 +163,16 @@ async def generate_scene(
     ]
     if not shots:
         raise HTTPException(status_code=404, detail="no shots in that scene")
+    scene = (
+        (
+            await session.execute(
+                select(Scene).where(Scene.project_id == project_id, Scene.order == scene_order)
+            )
+        )
+        .scalars()
+        .first()
+    )
+    _gate(review_gate_service.scene_generation_blockers(project, scene))
     takes = await generate_service.submit_scene_batch(
         session,
         project_id,
@@ -161,6 +187,7 @@ async def generate_scene(
 async def generate_project(
     project_id: str,
     body: BatchGenerateRequest | None = None,
+    project: Project = Depends(get_owned_project),
     auth: AuthCtx = Depends(current_auth),
     session: AsyncSession = Depends(get_session),
 ):
@@ -168,6 +195,7 @@ async def generate_project(
     shots = await planning_service.list_shots(session, project_id)
     if not shots:
         raise HTTPException(status_code=404, detail="no storyboard yet")
+    _gate(review_gate_service.project_generation_blockers(project))
     takes = await generate_service.submit_scene_batch(
         session,
         project_id,

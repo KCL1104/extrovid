@@ -20,7 +20,28 @@ class PreferredModel(StrEnum):
 class ProjectStatus(StrEnum):
     DRAFT = "draft"
     SCRIPTED = "scripted"
-    STORYBOARDED = "storyboarded"
+    STORYBOARDED = "storyboarded"  # plan exists, awaiting human review (the review gate)
+    APPROVED = "approved"  # plan signed off — generation is unlocked for gated tiers
+
+
+class AnnotationKind(StrEnum):
+    """What a review annotation is anchored to."""
+
+    SCENE = "scene"
+    SHOT = "shot"
+    VISUAL_BRIEF = "visual_brief"
+    PLAN = "plan"  # whole-plan note (no specific element)
+
+
+class AnnotationIntent(StrEnum):
+    COMMENT = "comment"  # a note for the human; no machine action
+    CHANGE = "change"  # a revise instruction the agent can act on
+
+
+class AnnotationStatus(StrEnum):
+    OPEN = "open"
+    APPLIED = "applied"  # a change annotation whose revision was committed
+    RESOLVED = "resolved"  # archived (not deleted) — keeps the review trail
 
 
 class AspectRatio(StrEnum):

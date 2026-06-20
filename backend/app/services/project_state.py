@@ -9,6 +9,7 @@ endpoints report precise missing dependencies instead of generic 400s.
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.tiers import tier_for
 from app.models.concept import VisualConceptSet
 from app.models.enums import JobStatus
 from app.models.generation import GenerationJob, ShotVersion
@@ -56,6 +57,18 @@ async def snapshot(session: AsyncSession, project_id: str) -> dict:
         select(func.count())
         .select_from(Shot)
         .where(Shot.project_id == project_id, Shot.stale.is_(True)),
+    )
+    scenes_approved = await _count(
+        session,
+        select(func.count())
+        .select_from(Scene)
+        .where(Scene.project_id == project_id, Scene.approved.is_(True)),
+    )
+    shots_approved = await _count(
+        session,
+        select(func.count())
+        .select_from(Shot)
+        .where(Shot.project_id == project_id, Shot.approved.is_(True)),
     )
     shots_with_keyframe = await _count(
         session,
@@ -115,9 +128,20 @@ async def snapshot(session: AsyncSession, project_id: str) -> dict:
         .select_from(TimelineSequence)
         .where(TimelineSequence.project_id == project_id),
     )
+    from app.services.review_gate_service import projected_cost  # local: avoid import cycle
+
+    tier = tier_for(project.target_duration_sec) if project else None
+    gated = tier is not None and tier.value != "short"
+    cost = await projected_cost(session, project_id)
     return {
         "project_status": project.status if project else None,
         "target_duration_sec": project.target_duration_sec if project else None,
+        "tier": tier.value if tier else None,
+        "gated": gated,
+        "scenes_approved": scenes_approved,
+        "shots_approved": shots_approved,
+        "projected_cost_usd": cost["total_usd"],
+        "cost_breakdown": cost,
         "has_brief": has_brief,
         "scenes": scenes,
         "stale_scenes": stale_scenes,

@@ -1,6 +1,7 @@
 """Scene table."""
 
 import uuid
+from datetime import datetime
 
 from sqlalchemy import JSON, Column
 from sqlmodel import Field, SQLModel
@@ -16,3 +17,7 @@ class Scene(SQLModel, table=True):
     est_duration_sec: float = 0.0
     # set when an upstream artifact changed after this row was planned
     stale: bool = Field(default=False)
+    # review gate (P1): signed off by the human, and frozen against bulk regeneration
+    approved: bool = Field(default=False)
+    locked: bool = Field(default=False)
+    approved_at: datetime | None = Field(default=None)

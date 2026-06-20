@@ -39,6 +39,8 @@ async def revise_scene(
     scene = await session.get(Scene, scene_id)
     if scene is None or scene.project_id != project_id:
         raise LookupError("scene not found")
+    if scene.locked:
+        raise ValueError("scene is locked; unlock it before revising")
     draft = SceneDraft(
         order=scene.order,
         title=scene.title,
@@ -56,12 +58,17 @@ async def revise_scene(
     scene.beats = [b.model_dump(mode="json") for b in revised.beats]
     scene.est_duration_sec = revised.est_duration_sec
     scene.stale = False
+    # a changed scene needs re-approval at the gate
+    scene.approved = False
+    scene.approved_at = None
     session.add(scene)
     # cascade: this scene's concept set + shots were planned against the OLD scene
     await session.execute(
         update(VisualConceptSet).where(VisualConceptSet.scene_id == scene_id).values(stale=True)
     )
-    await session.execute(update(Shot).where(Shot.scene_id == scene_id).values(stale=True))
+    await session.execute(
+        update(Shot).where(Shot.scene_id == scene_id).values(stale=True, approved=False)
+    )
     await session.commit()
     log.info("revise.scene project=%s scene=%s: %s", project_id, scene_id, instruction[:80])
     return scene
@@ -107,6 +114,8 @@ async def revise_shot(
     shot = await session.get(Shot, shot_id)
     if shot is None or shot.project_id != project_id:
         raise LookupError("shot not found")
+    if shot.locked:
+        raise ValueError("shot is locked; unlock it before revising")
     dto = ShotDTO(
         order=shot.order,
         scene_order=shot.scene_order,
@@ -145,6 +154,9 @@ async def revise_shot(
     shot.motion_desc = revised.motion_desc
     shot.variation_type = revised.variation_type
     shot.stale = False
+    # a changed shot needs re-approval at the gate
+    shot.approved = False
+    shot.approved_at = None
     session.add(shot)
     await session.commit()
     log.info("revise.shot project=%s shot=%s: %s", project_id, shot_id, instruction[:80])
@@ -164,4 +176,116 @@ async def revise(session: AsyncSession, project_id: str, target: str, instructio
         return await revise_visual_brief(session, project_id, ident, instruction)
     if kind == "shot":
         return await revise_shot(session, project_id, ident, instruction)
+    raise ValueError(f"unknown revision target kind: {kind!r}")
+
+
+# --------------------------------------------------------------------------- #
+# non-destructive proposals (dry-run) — the before/after diff for the review UI
+# --------------------------------------------------------------------------- #
+
+
+async def _propose_scene(session, project_id, scene_id, instruction) -> dict:
+    scene = await session.get(Scene, scene_id)
+    if scene is None or scene.project_id != project_id:
+        raise LookupError("scene not found")
+    before = {
+        "title": scene.title,
+        "summary": scene.summary,
+        "beats": scene.beats,
+        "est_duration_sec": scene.est_duration_sec,
+    }
+    draft = SceneDraft(
+        order=scene.order,
+        title=scene.title,
+        summary=scene.summary,
+        beats=scene.beats,
+        est_duration_sec=scene.est_duration_sec,
+    )
+    result = await run_agent(
+        revise_scene_agent,
+        _revise_prompt("scene", draft.model_dump_json(), instruction, scene.order),
+    )
+    r = result.output
+    after = {
+        "title": r.title,
+        "summary": r.summary,
+        "beats": [b.model_dump(mode="json") for b in r.beats],
+        "est_duration_sec": r.est_duration_sec,
+    }
+    return {"kind": "scene", "before": before, "after": after}
+
+
+async def _propose_visual_brief(session, project_id, scene_id, instruction) -> dict:
+    cs = (
+        (
+            await session.execute(
+                select(VisualConceptSet).where(
+                    VisualConceptSet.scene_id == scene_id,
+                    VisualConceptSet.project_id == project_id,
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if cs is None or not cs.visual_brief:
+        raise LookupError("visual brief not found for that scene")
+    current = VisualBrief.model_validate(cs.visual_brief)
+    result = await run_agent(
+        revise_visual_agent,
+        _revise_prompt("visual brief", current.model_dump_json(), instruction, current.scene_order),
+    )
+    return {
+        "kind": "visual_brief",
+        "before": current.model_dump(mode="json"),
+        "after": result.output.model_dump(mode="json"),
+    }
+
+
+async def _propose_shot(session, project_id, shot_id, instruction) -> dict:
+    shot = await session.get(Shot, shot_id)
+    if shot is None or shot.project_id != project_id:
+        raise LookupError("shot not found")
+    dto = ShotDTO(
+        order=shot.order,
+        scene_order=shot.scene_order,
+        purpose=shot.purpose,
+        duration_sec=shot.duration_sec,
+        beat=shot.beat,
+        camera_spec=shot.camera_spec,
+        performance_spec=shot.performance_spec,
+        preferred_model=shot.preferred_model,
+        acceptance_rules=shot.acceptance_rules,
+        reference_look_frame_ids=shot.reference_look_frame_ids,
+        transition=shot.transition,
+        framing=shot.framing,
+        camera_id=shot.camera_id,
+        first_frame_desc=shot.first_frame_desc,
+        last_frame_desc=shot.last_frame_desc,
+        motion_desc=shot.motion_desc,
+        variation_type=shot.variation_type,
+    )
+    result = await run_agent(
+        revise_shot_agent,
+        _revise_prompt("shot", dto.model_dump_json(), instruction, shot.scene_order),
+    )
+    return {
+        "kind": "shot",
+        "before": dto.model_dump(mode="json"),
+        "after": result.output.model_dump(mode="json"),
+    }
+
+
+async def propose(session: AsyncSession, project_id: str, target: str, instruction: str) -> dict:
+    """Run the revise agent but DON'T persist — return ``{kind, before, after}`` so the UI can
+    show a diff and let the user accept/reject. Accepting re-runs ``revise`` to commit."""
+    kind, _, ident = target.partition(":")
+    if not ident:
+        raise ValueError("target must be 'scene:{id}', 'visual_brief:{scene_id}' or 'shot:{id}'")
+    if kind == "scene":
+        return await _propose_scene(session, project_id, ident, instruction)
+    if kind == "visual_brief":
+        return await _propose_visual_brief(session, project_id, ident, instruction)
+    if kind == "shot":
+        return await _propose_shot(session, project_id, ident, instruction)
     raise ValueError(f"unknown revision target kind: {kind!r}")

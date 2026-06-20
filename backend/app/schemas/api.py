@@ -4,7 +4,14 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.models.enums import AspectRatio, ProjectStatus, PromotedAs, ShotTransition
+from app.models.enums import (
+    AnnotationIntent,
+    AnnotationKind,
+    AspectRatio,
+    ProjectStatus,
+    PromotedAs,
+    ShotTransition,
+)
 from app.schemas.pipeline import (
     CameraSpec,
     PerformanceSpec,
@@ -158,6 +165,8 @@ class SceneRead(BaseModel):
     beats: list
     est_duration_sec: float
     stale: bool = False  # an upstream artifact changed after this was planned
+    approved: bool = False  # signed off at the review gate
+    locked: bool = False  # frozen against bulk regeneration
 
 
 class LookFrameRead(BaseModel):
@@ -209,6 +218,59 @@ class ReviseRequest(BaseModel):
         ..., min_length=1, description="'scene:{id}' | 'visual_brief:{scene_id}' | 'shot:{id}'"
     )
     instruction: str = Field(..., min_length=1)
+    # when true, return a non-destructive before/after proposal instead of committing
+    dry_run: bool = Field(default=False)
+
+
+class ReviseProposal(BaseModel):
+    """A non-destructive revision proposal — the before/after diff for the review UI."""
+
+    target: str
+    kind: str
+    before: dict
+    after: dict
+    instruction: str
+
+
+# --- review gate (P1) ---
+
+
+class ApproveRequest(BaseModel):
+    """Approve the whole plan (both lists omitted) or a subset of scenes/shots."""
+
+    scene_ids: list[str] | None = None
+    shot_ids: list[str] | None = None
+
+
+class LockRequest(BaseModel):
+    locked: bool = True
+
+
+class AnnotationCreate(BaseModel):
+    target_kind: AnnotationKind
+    target_id: str | None = None  # required for scene/shot/visual_brief; None for plan
+    field: str | None = None
+    intent: AnnotationIntent = AnnotationIntent.COMMENT
+    text: str = Field(..., min_length=1)
+
+    @model_validator(mode="after")
+    def _anchor_needs_id(self) -> "AnnotationCreate":
+        if self.target_kind != AnnotationKind.PLAN and not self.target_id:
+            raise ValueError(f"{self.target_kind.value} annotations require a target_id")
+        return self
+
+
+class AnnotationRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    target_kind: str
+    target_id: str | None = None
+    field: str | None = None
+    intent: str
+    text: str
+    status: str
+    created_at: datetime
 
 
 class DirectorRequest(BaseModel):
@@ -364,6 +426,8 @@ class ShotRead(BaseModel):
     keyframe_verdict: str | None = None  # keyframe gate verdict: "pass" | "revise" | None
     keyframe_score: float | None = None  # keyframe gate score 0-10
     stale: bool = False  # an upstream artifact changed after this was planned
+    approved: bool = False  # signed off at the review gate
+    locked: bool = False  # frozen against bulk regeneration
 
 
 class ShotUpdate(BaseModel):
