@@ -142,6 +142,10 @@ async def snapshot(session: AsyncSession, project_id: str) -> dict:
         "shots_approved": shots_approved,
         "projected_cost_usd": cost["total_usd"],
         "cost_breakdown": cost,
+        "budget_usd": project.budget_usd if project else None,
+        "over_budget": bool(
+            project and project.budget_usd is not None and cost["total_usd"] > project.budget_usd
+        ),
         "has_brief": has_brief,
         "scenes": scenes,
         "stale_scenes": stale_scenes,

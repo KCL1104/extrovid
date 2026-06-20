@@ -5,6 +5,8 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.enums import (
+    MAX_TARGET_DURATION_SEC,
+    MIN_TARGET_DURATION_SEC,
     AnnotationIntent,
     AnnotationKind,
     AspectRatio,
@@ -25,7 +27,9 @@ class ProjectCreate(BaseModel):
     # title optional: when blank, the server auto-names it "Project N" for the owner.
     title: str | None = Field(default=None)
     aspect_ratio: AspectRatio = AspectRatio.R9_16
-    target_duration_sec: int = Field(default=20, ge=5, le=600)
+    target_duration_sec: int = Field(
+        default=20, ge=MIN_TARGET_DURATION_SEC, le=MAX_TARGET_DURATION_SEC
+    )
 
 
 # --- auth ---
@@ -83,7 +87,9 @@ class ProjectUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1)
     status: ProjectStatus | None = None
     aspect_ratio: AspectRatio | None = None
-    target_duration_sec: int | None = Field(default=None, ge=5, le=600)
+    target_duration_sec: int | None = Field(
+        default=None, ge=MIN_TARGET_DURATION_SEC, le=MAX_TARGET_DURATION_SEC
+    )
 
 
 class ProjectStats(BaseModel):
@@ -149,7 +155,9 @@ class VisualPlansResponse(BaseModel):
 class StoryboardRequest(BaseModel):
     script: ScriptDraft
     concept_specs: list[VisualConceptSetSpec] = []
-    target_duration_sec: int = Field(default=20, ge=5, le=600)
+    target_duration_sec: int = Field(
+        default=20, ge=MIN_TARGET_DURATION_SEC, le=MAX_TARGET_DURATION_SEC
+    )
 
 
 # --- read models for stored planning artifacts ---
@@ -247,6 +255,8 @@ class ApproveRequest(BaseModel):
 
     scene_ids: list[str] | None = None
     shot_ids: list[str] | None = None
+    # optional spend ceiling set at sign-off (None leaves the existing budget untouched)
+    budget_usd: float | None = Field(default=None, ge=0)
 
 
 class LockRequest(BaseModel):

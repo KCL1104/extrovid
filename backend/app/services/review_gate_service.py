@@ -34,6 +34,20 @@ def project_generation_blockers(project: Project) -> list[str]:
     return []
 
 
+async def budget_blockers(session: AsyncSession, project: Project) -> list[str]:
+    """Block generation when the plan's projected cost exceeds the approved budget (any tier).
+    A pre-spend ceiling: you can't start rendering a plan that costs more than you signed off."""
+    if project.budget_usd is None:
+        return []
+    cost = await projected_cost(session, project.id)
+    if cost["total_usd"] > project.budget_usd:
+        return [
+            f"plan projected ${cost['total_usd']:.2f} exceeds budget "
+            f"${project.budget_usd:.2f} — raise the budget or trim the plan"
+        ]
+    return []
+
+
 def _element_blockers(project: Project, *, approved: bool) -> list[str]:
     if not is_gated(project):
         return []
@@ -62,10 +76,15 @@ async def approve_plan(
     project: Project,
     scene_ids: list[str] | None = None,
     shot_ids: list[str] | None = None,
+    budget_usd: float | None = None,
 ) -> dict:
     """Approve the whole plan (both lists omitted) or a subset. Approving a scene approves its
-    shots too. The project flips to APPROVED once every scene is approved."""
+    shots too. The project flips to APPROVED once every scene is approved. An optional
+    ``budget_usd`` records the spend ceiling the user signed off on."""
     now = datetime.now(UTC).replace(tzinfo=None)
+    if budget_usd is not None:
+        project.budget_usd = budget_usd
+        session.add(project)
     whole = scene_ids is None and shot_ids is None
     if whole:
         await session.execute(
@@ -104,6 +123,7 @@ async def approve_plan(
         "scenes_total": total,
         "scenes_unapproved": unapproved,
         "approved": total > 0 and unapproved == 0,
+        "budget_usd": project.budget_usd,
     }
 
 

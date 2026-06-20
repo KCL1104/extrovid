@@ -89,6 +89,22 @@ async def test_annotation_rejects_foreign_target(client):
     assert bad.status_code == 404
 
 
+async def test_budget_blocks_overpriced_plan(client):
+    """A per-project budget is a pre-spend ceiling: a plan that projects over it can't render."""
+    pid = await _plan(client, "a 20s teaser")
+    await client.post(f"/api/projects/{pid}/plan/approve", json={"budget_usd": 0.01})
+    blocked = await client.post(f"/api/projects/{pid}/generate-all", json={})
+    assert blocked.status_code == 409
+    assert "budget" in blocked.json()["detail"]
+    state = (await client.get(f"/api/projects/{pid}/state")).json()
+    assert state["budget_usd"] == 0.01 and state["over_budget"] is True
+
+    # raise the budget above the projection -> generation flows
+    await client.post(f"/api/projects/{pid}/plan/approve", json={"budget_usd": 1000})
+    ok = await client.post(f"/api/projects/{pid}/generate-all", json={})
+    assert ok.status_code == 200
+
+
 async def test_plan_cost_estimate(client):
     pid = await _plan(client, "a 180s explainer video")
     cost = (await client.get(f"/api/projects/{pid}/plan/cost")).json()

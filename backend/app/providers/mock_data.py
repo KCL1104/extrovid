@@ -18,8 +18,10 @@ from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
 from pydantic_ai.models.function import AgentInfo, DeltaToolCall, DeltaToolCalls
 
 from app.models.enums import (
+    MAX_TARGET_DURATION_SEC,
     MIN_CONCEPT_FRAMES,
     MIN_SHOTS,
+    MIN_TARGET_DURATION_SEC,
     AspectRatio,
     ConceptSetStatus,
     ConceptSetType,
@@ -49,9 +51,9 @@ def _marker_int(text: str, key: str, default: int) -> int:
 
 def _parse_target_from_brief(text: str, default: int = 20) -> int:
     """Infer a duration like '30s' / '15 sec' / '45 seconds' from free brief text."""
-    m = re.search(r"(\d{1,3})\s*(?:s\b|sec|seconds?)", text, flags=re.IGNORECASE)
+    m = re.search(r"(\d{1,4})\s*(?:s\b|sec|seconds?)", text, flags=re.IGNORECASE)
     if m:
-        return max(5, min(600, int(m.group(1))))
+        return max(MIN_TARGET_DURATION_SEC, min(MAX_TARGET_DURATION_SEC, int(m.group(1))))
     return default
 
 

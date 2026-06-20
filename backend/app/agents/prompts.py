@@ -76,7 +76,7 @@ Given a user's free-text request, extract and complete a structured brief:
 product, story, platform, target_duration_sec, aspect_ratio, style, audience.
 Infer sensible defaults for any missing field; never leave required fields empty.
 Preserve the user's original text verbatim in raw_prompt. Keep target_duration_sec
-between 5 and 600 seconds. Return only the structured object."""
+between 5 and 1200 seconds. Return only the structured object."""
 
 SCRIPT_SYSTEM = (
     """You are a video scriptwriter who works across short, medium, and long formats.

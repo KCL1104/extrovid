@@ -115,10 +115,17 @@ MAX_SHOTS = 10  # legacy single-call bound (kept for reference)
 MIN_SHOTS_PER_SCENE = 1
 MAX_SHOTS_PER_SCENE = 10
 MIN_TOTAL_SHOTS = 1
-MAX_TOTAL_SHOTS = 80
-MAX_SCENES = 15
+# P3: long-form ceilings — ~20 min at ~8s/shot is ~150 shots; 40 scenes covers a chaptered
+# long piece. Short/medium never approach these (scene/shot counts are duration-driven), so
+# the caps are a safety ceiling, not a per-tier switch.
+MAX_TOTAL_SHOTS = 160
+MAX_SCENES = 40
 # a scene physically can't exceed this with <=10 shots of <=15s each
 MAX_SCENE_DURATION_SEC = MAX_SHOTS_PER_SCENE * 15
+
+# Output-length bounds (sec). Raised to 20 min for long-form (P3).
+MIN_TARGET_DURATION_SEC = 5
+MAX_TARGET_DURATION_SEC = 1200
 
 # Concept-set candidate-frame bounds (spec: 4-up or 8-up concept sets).
 MIN_CONCEPT_FRAMES = 4

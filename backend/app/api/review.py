@@ -35,7 +35,7 @@ async def approve_plan(
     approves its shots; the project flips to APPROVED once every scene is approved."""
     body = body or ApproveRequest()
     return await review_gate_service.approve_plan(
-        session, project, body.scene_ids, body.shot_ids
+        session, project, body.scene_ids, body.shot_ids, body.budget_usd
     )
 
 

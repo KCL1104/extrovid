@@ -25,6 +25,9 @@ class Project(SQLModel, table=True):
     status: str = Field(default=ProjectStatus.DRAFT.value)
     aspect_ratio: str = Field(default=AspectRatio.R9_16.value)
     target_duration_sec: int = 20
+    # review-gate budget (P3): max projected render cost the user approved for this project.
+    # None = no budget set; generation is blocked when the plan's projected cost exceeds it.
+    budget_usd: float | None = Field(default=None)
     created_at: datetime = Field(default_factory=_now)
 
 

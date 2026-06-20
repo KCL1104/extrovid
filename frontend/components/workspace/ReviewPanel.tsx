@@ -59,6 +59,7 @@ export default function ReviewPanel({
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [budget, setBudget] = useState(""); // empty -> defaults to the projected cost
 
   // inline composers (one open at a time), keyed by `${kind}:${id}`
   const [noteFor, setNoteFor] = useState<Target | null>(null);
@@ -135,9 +136,26 @@ export default function ReviewPanel({
     setProposal(null);
   }
 
+  async function approveWithBudget() {
+    const parsed = parseFloat(budget);
+    const budget_usd = Number.isFinite(parsed) && parsed > 0 ? parsed : cost?.total_usd;
+    await act("approve-all", () =>
+      approvePlan(projectId, budget_usd != null ? { budget_usd } : {}),
+    );
+  }
+
   const gated = !!state?.gated;
   const approved = state?.project_status === "approved";
   const tier = state?.tier ?? "—";
+  // shown in the budget field: the user's typed value, else the saved budget, else projected
+  const budgetVal =
+    budget !== ""
+      ? budget
+      : state?.budget_usd != null
+        ? String(state.budget_usd)
+        : cost
+          ? cost.total_usd.toFixed(2)
+          : "";
   const actualSec = shots.reduce((n, s) => n + (s.duration_sec ?? 0), 0);
   const openNotes = annotations.filter((a) => a.status === "open");
   const notesByTarget = (id: string) => openNotes.filter((a) => a.target_id === id);
@@ -175,7 +193,7 @@ export default function ReviewPanel({
             </p>
           </div>
 
-          {/* cost + approve */}
+          {/* cost + budget + approve */}
           <div className="flex flex-col items-end gap-2">
             {cost && (
               <div className="text-right">
@@ -186,14 +204,30 @@ export default function ReviewPanel({
                 </p>
               </div>
             )}
+            {state?.over_budget && (
+              <p className="font-mono text-[0.65rem] text-fail">
+                over budget — raise it or trim the plan
+              </p>
+            )}
             {gated && !approved && (
-              <Button
-                variant="primary"
-                loading={busy === "approve-all"}
-                onClick={() => act("approve-all", () => approvePlan(projectId))}
-              >
-                <Check size={14} aria-hidden /> Approve plan
-              </Button>
+              <div className="flex items-center gap-2">
+                <label className="font-mono text-[0.65rem] text-faint" htmlFor="budget">
+                  budget $
+                </label>
+                <input
+                  id="budget"
+                  inputMode="decimal"
+                  value={budgetVal}
+                  onChange={(e) => setBudget(e.target.value)}
+                  className="w-20 rounded-[var(--radius)] border border-border bg-bg-soft px-2 py-1.5 text-right font-mono text-xs text-fg outline-none focus:border-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                />
+                <Button variant="primary" loading={busy === "approve-all"} onClick={approveWithBudget}>
+                  <Check size={14} aria-hidden /> Approve
+                </Button>
+              </div>
+            )}
+            {approved && state?.budget_usd != null && (
+              <Pill className="text-ok">budget ${state.budget_usd.toFixed(2)}</Pill>
             )}
           </div>
         </div>

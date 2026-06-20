@@ -54,6 +54,7 @@ export type Project = {
   status: string;
   aspect_ratio: string;
   target_duration_sec: number;
+  budget_usd?: number | null; // review-gate spend ceiling (P3)
   created_at: string;
   stats?: ProjectStats | null;
 };
@@ -257,6 +258,8 @@ export type ProjectState = {
   shots_approved?: number;
   projected_cost_usd?: number;
   cost_breakdown?: PlanCost;
+  budget_usd?: number | null; // approved spend ceiling (None = unset)
+  over_budget?: boolean; // projected cost exceeds the budget
   has_brief: boolean;
   scenes: number;
   stale_scenes: number;
@@ -502,11 +505,17 @@ export const applyRevision = (id: string, target: string, after: Record<string, 
 
 // ── review gate (P1): approve / lock / annotate the plan before generation ──
 export const getPlanCost = (id: string) => api<PlanCost>(`/projects/${id}/plan/cost`);
-export const approvePlan = (id: string, body?: { scene_ids?: string[]; shot_ids?: string[] }) =>
-  api<{ project_status: string; scenes_total: number; scenes_unapproved: number; approved: boolean }>(
-    `/projects/${id}/plan/approve`,
-    { method: "POST", body: JSON.stringify(body ?? {}) },
-  );
+export const approvePlan = (
+  id: string,
+  body?: { scene_ids?: string[]; shot_ids?: string[]; budget_usd?: number },
+) =>
+  api<{
+    project_status: string;
+    scenes_total: number;
+    scenes_unapproved: number;
+    approved: boolean;
+    budget_usd?: number | null;
+  }>(`/projects/${id}/plan/approve`, { method: "POST", body: JSON.stringify(body ?? {}) });
 export const lockScene = (id: string, sceneId: string, locked: boolean) =>
   api<{ id: string; locked: boolean }>(`/projects/${id}/scenes/${sceneId}/lock`, {
     method: "POST",

@@ -115,6 +115,12 @@ def test_continuity_bible_injects_the_whole_arc():
     assert build_continuity_bible([]) == ""
 
 
+def test_long_form_duration_beyond_old_cap_is_valid():
+    # the 600s ceiling was raised to 1200s for long-form (P3)
+    assert BriefInput(raw_prompt="x", target_duration_sec=1200).target_duration_sec == 1200
+    assert tier_for(1200) is Tier.LONG
+
+
 async def test_long_brief_routes_to_long_tier_and_plans_per_scene():
     result = await run_pipeline(BriefInput(raw_prompt="a 400s brand documentary"))
     assert result.brief.target_duration_sec == 400

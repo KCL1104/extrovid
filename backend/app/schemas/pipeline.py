@@ -20,8 +20,10 @@ from app.models.enums import (
     MAX_CONCEPT_FRAMES,
     MAX_SCENES,
     MAX_SHOTS_PER_SCENE,
+    MAX_TARGET_DURATION_SEC,
     MAX_TOTAL_SHOTS,
     MIN_CONCEPT_FRAMES,
+    MIN_TARGET_DURATION_SEC,
     MIN_TOTAL_SHOTS,
     PLANNABLE_MODELS,
     AspectRatio,
@@ -44,7 +46,9 @@ class BriefInput(BaseModel):
     product: str | None = None
     story: str | None = None
     platform: str = Field(default="generic", description="tiktok / youtube / instagram / generic")
-    target_duration_sec: int = Field(default=20, ge=5, le=600)
+    target_duration_sec: int = Field(
+        default=20, ge=MIN_TARGET_DURATION_SEC, le=MAX_TARGET_DURATION_SEC
+    )
     aspect_ratio: AspectRatio = AspectRatio.R9_16
     style: str | None = None
     audience: str | None = None

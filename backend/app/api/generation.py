@@ -119,6 +119,7 @@ async def generate_shot(
 ):
     shot = await _shot_or_404(session, project_id, shot_id)
     _gate(review_gate_service.shot_generation_blockers(project, shot))
+    _gate(await review_gate_service.budget_blockers(session, project))
     try:
         takes = await generate_service.submit_shot_batch(
             session,
@@ -173,6 +174,7 @@ async def generate_scene(
         .first()
     )
     _gate(review_gate_service.scene_generation_blockers(project, scene))
+    _gate(await review_gate_service.budget_blockers(session, project))
     takes = await generate_service.submit_scene_batch(
         session,
         project_id,
@@ -196,6 +198,7 @@ async def generate_project(
     if not shots:
         raise HTTPException(status_code=404, detail="no storyboard yet")
     _gate(review_gate_service.project_generation_blockers(project))
+    _gate(await review_gate_service.budget_blockers(session, project))
     takes = await generate_service.submit_scene_batch(
         session,
         project_id,

@@ -4,6 +4,8 @@ import pytest
 from pydantic import ValidationError
 
 from app.models.enums import (
+    MAX_SCENES,
+    MAX_TARGET_DURATION_SEC,
     AspectRatio,
     ConceptSetType,
     PreferredModel,
@@ -196,7 +198,7 @@ def test_script_rejects_duplicate_scene_order():
 
 def test_script_rejects_too_many_scenes():
     with pytest.raises(ValidationError):
-        ScriptDraft(logline="x", scenes=[_scene(i) for i in range(16)])
+        ScriptDraft(logline="x", scenes=[_scene(i) for i in range(MAX_SCENES + 1)])
 
 
 def test_scene_visual_plan_requires_matching_scene_order():
@@ -223,7 +225,7 @@ def test_brief_requires_raw_prompt():
         BriefInput(raw_prompt="")
 
 
-@pytest.mark.parametrize("dur", [4, 601, 0])
+@pytest.mark.parametrize("dur", [4, MAX_TARGET_DURATION_SEC + 1, 0])
 def test_brief_rejects_bad_duration(dur):
     with pytest.raises(ValidationError):
         BriefInput(raw_prompt="x", target_duration_sec=dur)
