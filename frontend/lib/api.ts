@@ -67,6 +67,8 @@ export type Scene = {
   beats: SceneBeat[];
   est_duration_sec: number;
   stale?: boolean; // an upstream artifact changed after this was planned
+  approved?: boolean; // signed off at the review gate
+  locked?: boolean; // frozen against bulk regeneration
 };
 
 export type LookFrame = {
@@ -134,6 +136,8 @@ export type Shot = {
   keyframe_verdict?: string | null; // keyframe gate: "pass" | "revise" | null
   keyframe_score?: number | null; // keyframe gate score 0-10
   stale?: boolean; // an upstream artifact changed after this was planned
+  approved?: boolean; // signed off at the review gate
+  locked?: boolean; // frozen against bulk regeneration
 };
 
 /** PATCH body for a shot — all fields optional, only set fields are applied. */
@@ -235,9 +239,24 @@ export type Character = {
 };
 export type StylePack = { id: string; label: string; image_urls: string[] };
 
+// projected spend to render the current plan once (review-gate cost preview)
+export type PlanCost = {
+  shots: number;
+  video_usd: number;
+  image_usd: number;
+  tts_usd: number;
+  total_usd: number;
+};
+
 export type ProjectState = {
   project_status: string | null;
   target_duration_sec: number | null;
+  tier?: string | null; // short | medium | long (derived from target duration)
+  gated?: boolean; // medium/long require approval before generation
+  scenes_approved?: number;
+  shots_approved?: number;
+  projected_cost_usd?: number;
+  cost_breakdown?: PlanCost;
   has_brief: boolean;
   scenes: number;
   stale_scenes: number;
@@ -252,6 +271,29 @@ export type ProjectState = {
   characters: { name: string; has_portraits: boolean; has_references: boolean }[];
   style_packs: number;
   rough_cuts: number;
+};
+
+// ── review gate (P1) ──
+export type AnnotationKind = "scene" | "shot" | "visual_brief" | "plan";
+export type AnnotationIntent = "comment" | "change";
+export type Annotation = {
+  id: string;
+  target_kind: AnnotationKind;
+  target_id?: string | null;
+  field?: string | null;
+  intent: AnnotationIntent;
+  text: string;
+  status: "open" | "applied" | "resolved";
+  created_at: string;
+};
+// non-destructive revision proposal (the before/after diff for the gate)
+export type ReviseProposal = {
+  target: string;
+  dry_run: boolean;
+  kind: string;
+  before: Record<string, unknown>;
+  after: Record<string, unknown>;
+  instruction: string;
 };
 
 export type DirectorAction = { tool: string; args: Record<string, unknown>; result_summary: string };
@@ -445,6 +487,43 @@ export const reviseArtifact = (id: string, target: string, instruction: string) 
     method: "POST",
     body: JSON.stringify({ target, instruction }),
   });
+// dry-run: a non-destructive before/after proposal; commit by re-calling reviseArtifact
+export const proposeRevision = (id: string, target: string, instruction: string) =>
+  api<ReviseProposal>(`/projects/${id}/revise`, {
+    method: "POST",
+    body: JSON.stringify({ target, instruction, dry_run: true }),
+  });
+
+// ── review gate (P1): approve / lock / annotate the plan before generation ──
+export const getPlanCost = (id: string) => api<PlanCost>(`/projects/${id}/plan/cost`);
+export const approvePlan = (id: string, body?: { scene_ids?: string[]; shot_ids?: string[] }) =>
+  api<{ project_status: string; scenes_total: number; scenes_unapproved: number; approved: boolean }>(
+    `/projects/${id}/plan/approve`,
+    { method: "POST", body: JSON.stringify(body ?? {}) },
+  );
+export const lockScene = (id: string, sceneId: string, locked: boolean) =>
+  api<{ id: string; locked: boolean }>(`/projects/${id}/scenes/${sceneId}/lock`, {
+    method: "POST",
+    body: JSON.stringify({ locked }),
+  });
+export const lockShot = (id: string, shotId: string, locked: boolean) =>
+  api<{ id: string; locked: boolean }>(`/projects/${id}/shots/${shotId}/lock`, {
+    method: "POST",
+    body: JSON.stringify({ locked }),
+  });
+export const createAnnotation = (
+  id: string,
+  body: {
+    target_kind: AnnotationKind;
+    target_id?: string | null;
+    field?: string | null;
+    intent: AnnotationIntent;
+    text: string;
+  },
+) => api<Annotation>(`/projects/${id}/annotations`, { method: "POST", body: JSON.stringify(body) });
+export const listAnnotations = (id: string) => api<Annotation[]>(`/projects/${id}/annotations`);
+export const resolveAnnotation = (id: string, annId: string) =>
+  api<Annotation>(`/projects/${id}/annotations/${annId}/resolve`, { method: "POST" });
 export const directorChat = (id: string, message: string) =>
   api<DirectorResponse>(`/projects/${id}/director`, {
     method: "POST",

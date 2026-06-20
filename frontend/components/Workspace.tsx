@@ -42,6 +42,7 @@ import { streamSSE } from "@/lib/sse";
 import { Alert, Button, Eyebrow, Pill, Tabs } from "@/components/ui";
 import PlanPanel from "@/components/workspace/PlanPanel";
 import LookBoard from "@/components/workspace/LookBoard";
+import ReviewPanel from "@/components/workspace/ReviewPanel";
 import ShotBoard from "@/components/workspace/ShotBoard";
 import ShotInspector from "@/components/workspace/ShotInspector";
 import CutPlanner from "@/components/workspace/CutPlanner";
@@ -57,8 +58,17 @@ import {
   usageChanged,
 } from "@/components/workspace/shared";
 
-type TabId = "plan" | "look" | "cast" | "shots" | "cut" | "queue" | "director";
-const TAB_ORDER: TabId[] = ["plan", "look", "cast", "shots", "cut", "queue", "director"];
+type TabId = "plan" | "look" | "cast" | "review" | "shots" | "cut" | "queue" | "director";
+const TAB_ORDER: TabId[] = [
+  "plan",
+  "look",
+  "cast",
+  "review",
+  "shots",
+  "cut",
+  "queue",
+  "director",
+];
 
 /** lg+ viewport — drives whether the shot inspector docks as a pane or opens as a drawer. */
 function useIsDesktop() {
@@ -161,7 +171,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
-      const i = ["1", "2", "3", "4", "5", "6", "7"].indexOf(e.key);
+      const i = ["1", "2", "3", "4", "5", "6", "7", "8"].indexOf(e.key);
       if (i >= 0) setTab(TAB_ORDER[i]);
     };
     window.addEventListener("keydown", onKey);
@@ -582,6 +592,12 @@ export default function Workspace({ projectId }: { projectId: string }) {
               locked: scenes.length === 0,
             },
             {
+              id: "review",
+              label: "Review",
+              meta: shots.length || undefined,
+              locked: shots.length === 0,
+            },
+            {
               id: "shots",
               label: "Storyboard",
               meta: shots.length ? `${renderedShots}/${shots.length}` : undefined,
@@ -618,7 +634,8 @@ export default function Workspace({ projectId }: { projectId: string }) {
               setGenerating([]);
               setBusy({});
               await loadAll();
-              setTab("look");
+              // land on the review gate: show the full plan + cost before any spend
+              setTab("review");
             }}
             onRefresh={loadAll}
           />
@@ -639,6 +656,14 @@ export default function Workspace({ projectId }: { projectId: string }) {
             characters={characters}
             hasScript={scenes.length > 0}
             onChanged={async () => setCharacters(await listCharacters(projectId))}
+          />
+        )}
+        {tab === "review" && (
+          <ReviewPanel
+            projectId={projectId}
+            scenes={scenes}
+            shots={shots}
+            onRefresh={loadAll}
           />
         )}
         {tab === "shots" && (
