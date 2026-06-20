@@ -99,6 +99,22 @@ def _script_dict(text: str) -> dict:
     }
 
 
+def _outline_dict(text: str) -> dict:
+    """Deterministic LONG-tier chapter outline (3 acts)."""
+    return {
+        "acts": [
+            {
+                "order": i,
+                "title": f"Act {i + 1}",
+                "hook": "an opening question pulls the viewer in",
+                "open_loop": "a tension is planted and carried into the next act",
+                "summary": f"act {i + 1} escalates the central arc",
+            }
+            for i in range(3)
+        ]
+    }
+
+
 def _scene_visual_plan_dict(text: str) -> dict:
     scene_order = _marker_int(text, "SCENE_ORDER", 0)
     frames = [
@@ -333,6 +349,8 @@ def dispatch_mock(messages, info: AgentInfo) -> ModelResponse:
 
     if "raw_prompt" in props:
         args = _brief_dict(text)
+    elif "acts" in props:
+        args = _outline_dict(text)
     elif "logline" in props:
         args = _script_dict(text)
     elif "visual_brief" in props:

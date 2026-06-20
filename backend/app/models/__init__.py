@@ -1,5 +1,6 @@
 """Importing this package registers every SQLModel table on SQLModel.metadata."""
 
+from app.models.act import Act
 from app.models.annotation import Annotation
 from app.models.asset import ImageAsset
 from app.models.concept import LookFrame, VisualConceptSet
@@ -32,4 +33,5 @@ __all__ = [
     "DirectorTurn",
     "SourceEvent",
     "Annotation",
+    "Act",
 ]

@@ -13,6 +13,7 @@ import asyncio
 from app.agents.brief_agent import brief_agent
 from app.agents.cast_agent import cast_agent
 from app.agents.clarify_agent import clarify_agent
+from app.agents.outline_agent import outline_agent
 from app.agents.script_agent import script_agent
 from app.agents.storyboard_agent import scene_storyboard_agent
 from app.agents.tiers import Tier, scene_shot_tier_block, script_tier_block, tier_for
@@ -21,6 +22,7 @@ from app.core.agent_run import run_agent
 from app.models.enums import MAX_SCENE_DURATION_SEC
 from app.schemas.api import ClarifyAnswer, ClarifyResult
 from app.schemas.pipeline import (
+    ActDraft,
     BriefInput,
     CastMember,
     PipelineResult,
@@ -61,8 +63,25 @@ def fold_clarifications(raw_prompt: str, clarifications: list[ClarifyAnswer] | N
     return raw_prompt + "\n" + block if block else raw_prompt
 
 
+def act_block(acts: list[ActDraft] | None) -> str:
+    """Render the LONG-tier chapter outline as a prompt block so the script realizes the
+    pre-approved structure act by act ("" when there is no outline)."""
+    if not acts:
+        return ""
+    lines = "".join(
+        f"- Act {a.order + 1} — {a.title}: {a.summary} (hook: {a.hook}; open loop: {a.open_loop})\n"
+        for a in sorted(acts, key=lambda a: a.order)
+    )
+    return (
+        "\nACT STRUCTURE (write the scenes to realize these acts IN ORDER — each act becomes a "
+        "contiguous run of scenes; honor each act's hook and open loop):\n" + lines
+    )
+
+
 def build_script_prompt(
-    brief: BriefInput, clarifications: list[ClarifyAnswer] | None = None
+    brief: BriefInput,
+    clarifications: list[ClarifyAnswer] | None = None,
+    acts: list[ActDraft] | None = None,
 ) -> str:
     return (
         "Write a script for this brief.\n"
@@ -74,6 +93,21 @@ def build_script_prompt(
         f"Audience: {brief.audience}\n"
         f"Target duration: {brief.target_duration_sec}s\n"
         + script_tier_block(tier_for(brief.target_duration_sec), brief.target_duration_sec)
+        + act_block(acts)
+        + creative_direction_block(clarifications)
+    )
+
+
+def build_outline_prompt(
+    brief: BriefInput, clarifications: list[ClarifyAnswer] | None = None
+) -> str:
+    return (
+        "Design the act/chapter outline for this long-form brief.\n"
+        f"Raw request: {brief.raw_prompt}\n"
+        f"Story: {brief.story}\n"
+        f"Platform: {brief.platform}\n"
+        f"Audience: {brief.audience}\n"
+        f"Target duration: {brief.target_duration_sec}s\n"
         + creative_direction_block(clarifications)
     )
 
@@ -253,10 +287,22 @@ async def run_brief(
     return result.output
 
 
-async def run_script(
+async def run_outline(
     brief: BriefInput, clarifications: list[ClarifyAnswer] | None = None
+) -> list[ActDraft]:
+    """LONG-tier only: the chapter structure above scenes, generated before the script."""
+    result = await run_agent(outline_agent, build_outline_prompt(brief, clarifications))
+    return result.output.acts
+
+
+async def run_script(
+    brief: BriefInput,
+    clarifications: list[ClarifyAnswer] | None = None,
+    acts: list[ActDraft] | None = None,
 ) -> ScriptDraft:
-    result = await run_agent(script_agent, build_script_prompt(brief, clarifications), deps=brief)
+    result = await run_agent(
+        script_agent, build_script_prompt(brief, clarifications, acts), deps=brief
+    )
     return result.output
 
 
@@ -364,7 +410,11 @@ async def run_pipeline(
     brief_in: BriefInput, clarifications: list[ClarifyAnswer] | None = None
 ) -> PipelineResult:
     filled = await run_brief(brief_in.raw_prompt, clarifications)
-    script = await run_script(filled, clarifications)
+    # LONG tier: design the chapter outline first, then write the script to realize it
+    acts: list[ActDraft] = []
+    if tier_for(filled.target_duration_sec) is Tier.LONG:
+        acts = await run_outline(filled, clarifications)
+    script = await run_script(filled, clarifications, acts)
 
     # cast extraction and per-scene visual dev are independent — run concurrently
     cast, *plans = await asyncio.gather(
@@ -379,6 +429,7 @@ async def run_pipeline(
     )
     return PipelineResult(
         brief=filled,
+        acts=acts,
         script=script,
         cast=cast,
         visual_briefs=visual_briefs,

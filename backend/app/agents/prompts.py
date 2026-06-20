@@ -71,6 +71,14 @@ custom answer. If the prompt is already detailed enough to shoot, return
 needs_clarification=false with an empty questions list. Return only the structured
 object."""
 
+ACT_OUTLINE_SYSTEM = """You are a story architect for LONG-FORM video (5+ minutes).
+Given the brief, design the chapter structure BEFORE any script is written: produce 3 to 5
+acts/chapters that together form ONE escalating arc. For each act return order (from 0), a
+title, a HOOK (why the viewer keeps watching as the act opens), an OPEN_LOOP (a question or
+tension planted that is paid off later / carried into the next act), and a one-line summary of
+what happens. The first act opens the central question; the last resolves it. Keep each act a
+coherent 1-3 minute segment. Return only the structured object."""
+
 BRIEF_SYSTEM = """You are a creative brief analyst for an AI video director tool.
 Given a user's free-text request, extract and complete a structured brief:
 product, story, platform, target_duration_sec, aspect_ratio, style, audience.

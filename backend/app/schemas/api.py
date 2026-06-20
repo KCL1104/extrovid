@@ -167,6 +167,7 @@ class SceneRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
+    act_id: str | None = None  # LONG tier: the chapter this scene belongs to
     order: int
     title: str
     summary: str

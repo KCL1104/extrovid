@@ -5,9 +5,10 @@ idempotent. We don't declare ORM relationships (to keep async simple), so insert
 made explicit with flushes: parents are flushed before their children to satisfy FKs.
 """
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.act import Act
 from app.models.concept import LookFrame, VisualConceptSet
 from app.models.enums import ProjectStatus
 from app.models.project import Brief, Project
@@ -16,6 +17,7 @@ from app.models.shot import Shot
 from app.schemas.api import ClarifyAnswer, ShotUpdate
 from app.services import memory_service
 from app.schemas.pipeline import (
+    ActDraft,
     BriefInput,
     PipelineResult,
     ScriptDraft,
@@ -42,6 +44,12 @@ async def _clear_scenes(session: AsyncSession, pid: str) -> None:
     await session.execute(delete(Scene).where(Scene.project_id == pid))
 
 
+async def _clear_acts(session: AsyncSession, pid: str) -> None:
+    # null the child references first so the FK holds, then drop the acts
+    await session.execute(update(Scene).where(Scene.project_id == pid).values(act_id=None))
+    await session.execute(delete(Act).where(Act.project_id == pid))
+
+
 async def _clear_brief(session: AsyncSession, pid: str) -> None:
     await session.execute(delete(Brief).where(Brief.project_id == pid))
 
@@ -50,6 +58,7 @@ async def _clear_all(session: AsyncSession, pid: str) -> None:
     await _clear_shots(session, pid)
     await _clear_concept_sets(session, pid)
     await _clear_scenes(session, pid)
+    await _clear_acts(session, pid)
     await _clear_brief(session, pid)
 
 
@@ -74,11 +83,44 @@ async def _insert_brief(
     )
 
 
-async def _insert_scenes(session: AsyncSession, pid: str, script: ScriptDraft) -> dict[int, str]:
+async def _insert_acts(session: AsyncSession, pid: str, acts: list[ActDraft]) -> list[Act]:
+    rows: list[Act] = []
+    for a in sorted(acts, key=lambda a: a.order):
+        row = Act(
+            project_id=pid,
+            order=a.order,
+            title=a.title,
+            hook=a.hook,
+            open_loop=a.open_loop,
+            summary=a.summary,
+        )
+        session.add(row)
+        rows.append(row)
+    await session.flush()  # acts must exist before scenes reference act_id
+    return rows
+
+
+def _scene_act_ids(scenes_sorted: list, acts: list[Act] | None) -> list[str | None]:
+    """Assign each scene (in order) to an act by even contiguous slices — scene i of n across
+    m acts goes to act floor(i*m/n). The script is written act-by-act, so order aligns."""
+    n = len(scenes_sorted)
+    if not acts or n == 0:
+        return [None] * n
+    acts_sorted = sorted(acts, key=lambda a: a.order)
+    m = len(acts_sorted)
+    return [acts_sorted[min(m - 1, (i * m) // n)].id for i in range(n)]
+
+
+async def _insert_scenes(
+    session: AsyncSession, pid: str, script: ScriptDraft, acts: list[Act] | None = None
+) -> dict[int, str]:
     mapping: dict[int, str] = {}
-    for sc in script.scenes:
+    scenes_sorted = sorted(script.scenes, key=lambda s: s.order)
+    act_ids = _scene_act_ids(scenes_sorted, acts)
+    for sc, aid in zip(scenes_sorted, act_ids, strict=False):
         row = Scene(
             project_id=pid,
+            act_id=aid,
             order=sc.order,
             title=sc.title,
             summary=sc.summary,
@@ -233,13 +275,50 @@ async def stored_clarifications(session: AsyncSession, project_id: str) -> list[
 
 
 async def replace_scenes(
-    session: AsyncSession, project_id: str, script: ScriptDraft
+    session: AsyncSession,
+    project_id: str,
+    script: ScriptDraft,
+    acts: list[Act] | None = None,
 ) -> dict[int, str]:
     # regenerating the script invalidates downstream concept sets and shots
     await _clear_shots(session, project_id)
     await _clear_concept_sets(session, project_id)
     await _clear_scenes(session, project_id)
-    return await _insert_scenes(session, project_id, script)
+    return await _insert_scenes(session, project_id, script, acts)
+
+
+async def replace_acts(
+    session: AsyncSession, project_id: str, acts: list[ActDraft]
+) -> list[Act]:
+    """Replace the project's act outline (staged /plan/outline). Nulls scene act refs first."""
+    await _clear_acts(session, project_id)
+    return await _insert_acts(session, project_id, acts)
+
+
+async def clear_acts(session: AsyncSession, project_id: str) -> None:
+    await _clear_acts(session, project_id)
+
+
+async def list_acts(session: AsyncSession, project_id: str) -> list[Act]:
+    res = await session.execute(
+        select(Act).where(Act.project_id == project_id).order_by(Act.order)
+    )
+    return list(res.scalars().all())
+
+
+async def stored_acts(session: AsyncSession, project_id: str) -> list[ActDraft]:
+    """The persisted act outline as ActDraft DTOs (re-injected into the script prompt)."""
+    rows = await list_acts(session, project_id)
+    return [
+        ActDraft(
+            order=r.order,
+            title=r.title or f"Act {r.order + 1}",
+            hook=r.hook or "—",
+            open_loop=r.open_loop or "—",
+            summary=r.summary or "—",
+        )
+        for r in rows
+    ]
 
 
 async def replace_concept_sets(
@@ -289,7 +368,8 @@ async def persist_pipeline(
 ) -> None:
     await _clear_all(session, project.id)
     await _insert_brief(session, project.id, result.brief, clarifications)
-    mapping = await _insert_scenes(session, project.id, result.script)
+    act_rows = await _insert_acts(session, project.id, result.acts)
+    mapping = await _insert_scenes(session, project.id, result.script, act_rows)
     await _insert_concept_sets(
         session, project.id, result.concept_specs, mapping, result.visual_briefs
     )

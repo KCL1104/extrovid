@@ -10,6 +10,8 @@ from sqlmodel import Field, SQLModel
 class Scene(SQLModel, table=True):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
     project_id: str = Field(foreign_key="project.id", index=True)
+    # LONG tier: the act/chapter this scene belongs to (None for short/medium)
+    act_id: str | None = Field(default=None, foreign_key="act.id", index=True)
     order: int
     title: str
     summary: str

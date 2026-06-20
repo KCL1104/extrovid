@@ -129,3 +129,53 @@ async def test_long_brief_routes_to_long_tier_and_plans_per_scene():
     assert len(shots) > 10  # per-scene fold, past the old global ceiling
     assert sorted(s.order for s in shots) == list(range(len(shots)))
     assert all(0 < s.duration_sec <= 15 for s in shots)
+
+
+# --- P3b: chapter/act layer (LONG only) ---
+
+
+async def test_short_pipeline_has_no_acts():
+    result = await run_pipeline(BriefInput(raw_prompt="a 20s teaser"))
+    assert result.acts == []
+
+
+async def test_long_pipeline_generates_acts():
+    result = await run_pipeline(BriefInput(raw_prompt="a 600s documentary"))
+    assert len(result.acts) == 3  # mock outline
+    assert all(a.title and a.hook and a.open_loop for a in result.acts)
+
+
+async def test_long_run_groups_scenes_under_acts(client):
+    pid = (await client.post("/api/projects", json={"title": "Long"})).json()["id"]
+    await client.post(f"/api/projects/{pid}/run", json={"raw_prompt": "a 600s documentary"})
+    acts = (await client.get(f"/api/projects/{pid}/plan/outline")).json()
+    assert len(acts) == 3
+    act_ids = {a["id"] for a in acts}
+    scenes = (await client.get(f"/api/projects/{pid}/script")).json()
+    assert scenes and all(s["act_id"] in act_ids for s in scenes)
+
+
+async def test_short_run_has_no_acts(client):
+    pid = (await client.post("/api/projects", json={"title": "Short"})).json()["id"]
+    await client.post(f"/api/projects/{pid}/run", json={"raw_prompt": "a 20s teaser"})
+    assert (await client.get(f"/api/projects/{pid}/plan/outline")).json() == []
+    scenes = (await client.get(f"/api/projects/{pid}/script")).json()
+    assert all(s["act_id"] is None for s in scenes)
+
+
+async def test_staged_script_creates_acts_for_long(client):
+    pid = (await client.post("/api/projects", json={"title": "L"})).json()["id"]
+    brief = (
+        await client.post(f"/api/projects/{pid}/brief", json={"raw_prompt": "a 600s documentary"})
+    ).json()
+    await client.post(f"/api/projects/{pid}/script", json=brief)
+    assert len(((await client.get(f"/api/projects/{pid}/plan/outline")).json())) == 3
+
+
+async def test_outline_endpoint_rejects_short(client):
+    pid = (await client.post("/api/projects", json={"title": "S"})).json()["id"]
+    brief = (
+        await client.post(f"/api/projects/{pid}/brief", json={"raw_prompt": "a 20s teaser"})
+    ).json()
+    r = await client.post(f"/api/projects/{pid}/plan/outline", json=brief)
+    assert r.status_code == 422

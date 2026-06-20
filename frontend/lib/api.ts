@@ -67,9 +67,20 @@ export type Scene = {
   summary: string;
   beats: SceneBeat[];
   est_duration_sec: number;
+  act_id?: string | null; // LONG tier: the chapter this scene belongs to
   stale?: boolean; // an upstream artifact changed after this was planned
   approved?: boolean; // signed off at the review gate
   locked?: boolean; // frozen against bulk regeneration
+};
+
+// LONG-tier chapter/act (the structure above scenes)
+export type Act = {
+  id: string;
+  order: number;
+  title: string;
+  hook: string;
+  open_loop: string;
+  summary: string;
 };
 
 export type LookFrame = {
@@ -537,6 +548,8 @@ export const createAnnotation = (
   },
 ) => api<Annotation>(`/projects/${id}/annotations`, { method: "POST", body: JSON.stringify(body) });
 export const listAnnotations = (id: string) => api<Annotation[]>(`/projects/${id}/annotations`);
+// LONG-tier chapter outline (empty for short/medium)
+export const getOutline = (id: string) => api<Act[]>(`/projects/${id}/plan/outline`);
 export const resolveAnnotation = (id: string, annId: string) =>
   api<Annotation>(`/projects/${id}/annotations/${annId}/resolve`, { method: "POST" });
 export const directorChat = (id: string, message: string) =>

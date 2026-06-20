@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.tiers import Tier, tier_for
 from app.api.deps import get_owned_project
 from app.core.db import get_session
 from app.models.concept import VisualConceptSet
@@ -16,6 +17,7 @@ from app.models.project import Project
 from app.pipeline import orchestrator
 from app.schemas.api import ClarifyResult, RunRequest, StoryboardRequest, VisualPlansResponse
 from app.schemas.pipeline import (
+    ActDraft,
     BriefInput,
     PipelineResult,
     ScriptDraft,
@@ -65,8 +67,18 @@ async def generate_script(
     project_id: str, brief: BriefInput, session: AsyncSession = Depends(get_session)
 ):
     clar = await planning_service.stored_clarifications(session, project_id)
-    script = await orchestrator.run_script(brief, clar)
-    await planning_service.replace_scenes(session, project_id, script)
+    # LONG tier: (re)use the chapter outline and write the script to realize it; scenes are
+    # grouped under acts. Short/medium clear any stale acts.
+    acts_drafts: list[ActDraft] = []
+    act_rows = None
+    if tier_for(brief.target_duration_sec) is Tier.LONG:
+        existing = await planning_service.stored_acts(session, project_id)
+        acts_drafts = existing or await orchestrator.run_outline(brief, clar)
+        act_rows = await planning_service.replace_acts(session, project_id, acts_drafts)
+    else:
+        await planning_service.clear_acts(session, project_id)
+    script = await orchestrator.run_script(brief, clar, acts_drafts)
+    await planning_service.replace_scenes(session, project_id, script, act_rows)
     project = await session.get(Project, project_id)
     if project and project.status == ProjectStatus.DRAFT.value:
         project.status = ProjectStatus.SCRIPTED.value
@@ -156,6 +168,37 @@ async def list_source_events(project_id: str, session: AsyncSession = Depends(ge
 async def project_snapshot(project_id: str, session: AsyncSession = Depends(get_session)):
     """Deterministic project checklist — what exists, what's missing, what's stale."""
     return await project_state.snapshot(session, project_id)
+
+
+def _act_read(a) -> dict:
+    return {
+        "id": a.id,
+        "order": a.order,
+        "title": a.title,
+        "hook": a.hook,
+        "open_loop": a.open_loop,
+        "summary": a.summary,
+    }
+
+
+@router.get("/plan/outline")
+async def get_outline(project_id: str, session: AsyncSession = Depends(get_session)):
+    """The LONG-tier chapter outline ([] for short/medium or before planning)."""
+    return [_act_read(a) for a in await planning_service.list_acts(session, project_id)]
+
+
+@router.post("/plan/outline")
+async def regenerate_outline(
+    project_id: str, brief: BriefInput, session: AsyncSession = Depends(get_session)
+):
+    """Regenerate the chapter outline (reviewable before the script/storyboard are built)."""
+    if tier_for(brief.target_duration_sec) is not Tier.LONG:
+        raise HTTPException(status_code=422, detail="outline is only for long-form videos (>5min)")
+    clar = await planning_service.stored_clarifications(session, project_id)
+    acts = await orchestrator.run_outline(brief, clar)
+    rows = await planning_service.replace_acts(session, project_id, acts)
+    await session.commit()
+    return [_act_read(a) for a in rows]
 
 
 @router.post("/revise")

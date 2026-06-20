@@ -87,6 +87,34 @@ class ScriptDraft(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
+# Stage 0b — Act / Chapter outline (LONG tier only; the structure above scenes)
+# --------------------------------------------------------------------------- #
+
+
+class ActDraft(BaseModel):
+    """One act/chapter of a long-form piece — the reviewable structure above scenes."""
+
+    order: int = Field(..., ge=0)
+    title: str = Field(..., min_length=1)
+    hook: str = Field(..., min_length=1, description="the act's opening hook / why keep watching")
+    open_loop: str = Field(
+        ..., min_length=1, description="the tension or question carried into the next act"
+    )
+    summary: str = Field(..., min_length=1, description="what happens in this act, one line")
+
+
+class ActOutline(BaseModel):
+    acts: list[ActDraft] = Field(..., min_length=1, max_length=8)
+
+    @model_validator(mode="after")
+    def _act_orders_unique(self) -> ActOutline:
+        orders = [a.order for a in self.acts]
+        if len(set(orders)) != len(orders):
+            raise ValueError("act.order values must be unique")
+        return self
+
+
+# --------------------------------------------------------------------------- #
 # Stage 1b — Cast (planned characters, extracted from the script)
 # --------------------------------------------------------------------------- #
 
@@ -376,6 +404,7 @@ class Storyboard(BaseModel):
 
 class PipelineResult(BaseModel):
     brief: BriefInput
+    acts: list[ActDraft] = Field(default_factory=list)  # LONG tier chapter outline ([] otherwise)
     script: ScriptDraft
     cast: list[CastMember] = Field(default_factory=list)
     visual_briefs: list[VisualBrief]

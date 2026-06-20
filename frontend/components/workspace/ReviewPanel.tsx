@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import {
   Check,
   ChevronDown,
@@ -14,6 +14,7 @@ import {
   applyRevision,
   approvePlan,
   createAnnotation,
+  getOutline,
   getPlanCost,
   getProjectState,
   listAnnotations,
@@ -21,6 +22,7 @@ import {
   lockShot,
   proposeRevision,
   resolveAnnotation,
+  type Act,
   type Annotation,
   type PlanCost,
   type ProjectState,
@@ -55,6 +57,7 @@ export default function ReviewPanel({
 }) {
   const [state, setState] = useState<ProjectState | null>(null);
   const [cost, setCost] = useState<PlanCost | null>(null);
+  const [acts, setActs] = useState<Act[]>([]);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
   const [busy, setBusy] = useState<string | null>(null);
@@ -69,14 +72,16 @@ export default function ReviewPanel({
   const [proposal, setProposal] = useState<ReviseProposal | null>(null);
 
   const loadGate = useCallback(async () => {
-    const [s, c, a] = await Promise.all([
+    const [s, c, a, ac] = await Promise.all([
       getProjectState(projectId),
       getPlanCost(projectId),
       listAnnotations(projectId),
+      getOutline(projectId),
     ]);
     setState(s);
     setCost(c);
     setAnnotations(a);
+    setActs(ac);
   }, [projectId]);
 
   useEffect(() => {
@@ -236,14 +241,29 @@ export default function ReviewPanel({
 
       {/* ── scene-by-scene review (progressive disclosure) ──────────── */}
       <section className="space-y-3">
-        {scenes.map((scene) => {
+        {scenes.map((scene, idx) => {
           const sceneShots = shots
             .filter((s) => s.scene_order === scene.order)
             .sort((a, b) => a.order - b.order);
           const open = expanded[scene.order] ?? false;
           const sceneTarget: Target = { kind: "scene", id: scene.id };
+          // a chapter header before the first scene of each act (LONG tier)
+          const aid = scene.act_id ?? null;
+          const prevAid = idx > 0 ? (scenes[idx - 1].act_id ?? null) : " ";
+          const chapter = acts.find((a) => a.id === aid);
+          const showAct = acts.length > 0 && !!chapter && aid !== prevAid;
           return (
-            <Panel key={scene.id} className="overflow-hidden">
+            <Fragment key={scene.id}>
+              {showAct && chapter && (
+                <div className="flex flex-wrap items-baseline gap-2 px-1 pb-1 pt-3">
+                  <span className="font-mono text-xs text-accent">Act {chapter.order + 1}</span>
+                  <span className="font-display text-base text-fg">{chapter.title}</span>
+                  <span className="min-w-0 truncate text-xs text-faint" title={chapter.open_loop}>
+                    {chapter.hook}
+                  </span>
+                </div>
+              )}
+              <Panel className="overflow-hidden">
               {/* scene header */}
               <div className="flex flex-wrap items-center justify-between gap-2 p-4">
                 <button
@@ -431,7 +451,8 @@ export default function ReviewPanel({
                   ))}
                 </ul>
               )}
-            </Panel>
+              </Panel>
+            </Fragment>
           );
         })}
       </section>
