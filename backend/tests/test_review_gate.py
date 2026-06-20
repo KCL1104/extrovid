@@ -110,6 +110,44 @@ async def test_revise_dry_run_is_non_destructive(client):
     assert next(s for s in still if s["order"] == 0)["title"] == before_title
 
 
+async def test_revise_apply_commits_exact_proposal(client):
+    """Accepting a proposal writes its exact `after` — no second, possibly-different run."""
+    pid = await _plan(client, "a 20s teaser")
+    scenes = (await client.get(f"/api/projects/{pid}/script")).json()
+    s0 = next(s for s in scenes if s["order"] == 0)
+
+    proposal = (
+        await client.post(
+            f"/api/projects/{pid}/revise",
+            json={"target": f"scene:{s0['id']}", "instruction": "moodier", "dry_run": True},
+        )
+    ).json()
+    after = proposal["after"]
+
+    applied = await client.post(
+        f"/api/projects/{pid}/revise/apply",
+        json={"target": f"scene:{s0['id']}", "after": after},
+    )
+    assert applied.status_code == 200
+
+    stored = next(
+        s for s in (await client.get(f"/api/projects/{pid}/script")).json() if s["order"] == 0
+    )
+    assert stored["title"] == after["title"]
+    assert stored["summary"] == after["summary"]
+
+
+async def test_revise_apply_refuses_locked(client):
+    pid = await _plan(client, "a 20s teaser")
+    shot = (await client.get(f"/api/projects/{pid}/storyboard")).json()[0]
+    await client.post(f"/api/projects/{pid}/shots/{shot['id']}/lock", json={"locked": True})
+    blocked = await client.post(
+        f"/api/projects/{pid}/revise/apply",
+        json={"target": f"shot:{shot['id']}", "after": {"purpose": "x"}},
+    )
+    assert blocked.status_code == 422
+
+
 async def test_annotation_crud_and_resolve(client):
     pid = await _plan(client, "a 20s teaser")
     shot = (await client.get(f"/api/projects/{pid}/storyboard")).json()[0]

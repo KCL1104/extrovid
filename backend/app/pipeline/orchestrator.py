@@ -118,6 +118,25 @@ def cast_block(cast: list[CastMember] | None) -> str:
     )
 
 
+def build_continuity_bible(scenes: list[SceneDraft]) -> str:
+    """A compact whole-arc context injected into EVERY per-scene planner (P2).
+
+    The per-scene fold otherwise sees only its own scene plus the adjacent ``_scene_tail``
+    baton, so locations/props/time-of-day drift across non-adjacent scenes. The cast (with
+    appearance) is the character half of the bible (``cast_block``); this is the world/arc
+    half — the cheapest, highest-leverage long-form drift defense (ViMax/VideoStudio)."""
+    if not scenes:
+        return ""
+    arc = "\n".join(
+        f"- S{s.order + 1} {s.title}: {s.summary}" for s in sorted(scenes, key=lambda s: s.order)
+    )
+    return (
+        "\nSTORY CONTINUITY (the whole arc — keep locations, props, wardrobe, palette and "
+        "time-of-day consistent with these scenes; never contradict an earlier scene unless "
+        "the script motivates it):\n" + arc
+    )
+
+
 def build_scene_storyboard_prompt(
     scene: SceneDraft,
     visual_brief,
@@ -126,6 +145,7 @@ def build_scene_storyboard_prompt(
     cast: list[CastMember] | None = None,
     prev_tail: str | None = None,
     tier: Tier | None = None,
+    bible: str | None = None,
 ) -> str:
     beats = "; ".join(
         " ".join(filter(None, [b.description, b.narration, b.dialogue])) for b in scene.beats
@@ -168,6 +188,7 @@ def build_scene_storyboard_prompt(
         + direction
         + continuity
         + (scene_shot_tier_block(tier, budget_sec, scene.order) if tier else "")
+        + (bible or "")
         + cast_block(cast)
         + creative_direction_block(clarifications)
     )
@@ -291,6 +312,7 @@ async def run_storyboard(
     total_est = sum(s.est_duration_sec for s in script.scenes) or 1.0
     scale = target_duration_sec / total_est
     tier = tier_for(target_duration_sec)  # pacing/ASL guidance scales with overall length
+    bible = build_continuity_bible(script.scenes)  # whole-arc context for every scene planner
 
     scenes_out: list[StoryboardScene] = []
     next_order = 0
@@ -308,6 +330,7 @@ async def run_storyboard(
                 cast,
                 prev_tail,
                 tier,
+                bible,
             ),
             deps=budget,
         )

@@ -278,7 +278,8 @@ async def _propose_shot(session, project_id, shot_id, instruction) -> dict:
 
 async def propose(session: AsyncSession, project_id: str, target: str, instruction: str) -> dict:
     """Run the revise agent but DON'T persist — return ``{kind, before, after}`` so the UI can
-    show a diff and let the user accept/reject. Accepting re-runs ``revise`` to commit."""
+    show a diff and let the user accept/reject. Accepting applies the EXACT proposed ``after``
+    via ``apply_proposal`` (deterministic — no second, possibly-different agent run)."""
     kind, _, ident = target.partition(":")
     if not ident:
         raise ValueError("target must be 'scene:{id}', 'visual_brief:{scene_id}' or 'shot:{id}'")
@@ -288,4 +289,108 @@ async def propose(session: AsyncSession, project_id: str, target: str, instructi
         return await _propose_visual_brief(session, project_id, ident, instruction)
     if kind == "shot":
         return await _propose_shot(session, project_id, ident, instruction)
+    raise ValueError(f"unknown revision target kind: {kind!r}")
+
+
+# --------------------------------------------------------------------------- #
+# apply an accepted proposal exactly (no re-run) — the deterministic commit path
+# --------------------------------------------------------------------------- #
+
+
+async def _apply_scene(session, project_id, scene_id, after: dict) -> Scene:
+    scene = await session.get(Scene, scene_id)
+    if scene is None or scene.project_id != project_id:
+        raise LookupError("scene not found")
+    if scene.locked:
+        raise ValueError("scene is locked; unlock it before revising")
+    revised = SceneDraft(
+        order=scene.order,
+        title=after["title"],
+        summary=after["summary"],
+        beats=after["beats"],
+        est_duration_sec=after["est_duration_sec"],
+    )
+    scene.title = revised.title
+    scene.summary = revised.summary
+    scene.beats = [b.model_dump(mode="json") for b in revised.beats]
+    scene.est_duration_sec = revised.est_duration_sec
+    scene.stale = False
+    scene.approved = False
+    scene.approved_at = None
+    session.add(scene)
+    await session.execute(
+        update(VisualConceptSet).where(VisualConceptSet.scene_id == scene_id).values(stale=True)
+    )
+    await session.execute(
+        update(Shot).where(Shot.scene_id == scene_id).values(stale=True, approved=False)
+    )
+    await session.commit()
+    return scene
+
+
+async def _apply_visual_brief(session, project_id, scene_id, after: dict) -> VisualConceptSet:
+    cs = (
+        (
+            await session.execute(
+                select(VisualConceptSet).where(
+                    VisualConceptSet.scene_id == scene_id,
+                    VisualConceptSet.project_id == project_id,
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if cs is None or not cs.visual_brief:
+        raise LookupError("visual brief not found for that scene")
+    cs.visual_brief = VisualBrief.model_validate(after).model_dump(mode="json")
+    cs.stale = False
+    session.add(cs)
+    await session.commit()
+    return cs
+
+
+async def _apply_shot(session, project_id, shot_id, after: dict) -> Shot:
+    shot = await session.get(Shot, shot_id)
+    if shot is None or shot.project_id != project_id:
+        raise LookupError("shot not found")
+    if shot.locked:
+        raise ValueError("shot is locked; unlock it before revising")
+    # keep structural indices ours; the rest comes from the accepted proposal
+    revised = ShotDTO.model_validate({**after, "order": shot.order, "scene_order": shot.scene_order})
+    shot.purpose = revised.purpose
+    shot.duration_sec = revised.duration_sec
+    shot.beat = revised.beat
+    shot.camera_spec = revised.camera_spec.model_dump(mode="json")
+    shot.performance_spec = revised.performance_spec.model_dump(mode="json")
+    shot.preferred_model = revised.preferred_model.value
+    shot.acceptance_rules = revised.acceptance_rules
+    shot.transition = revised.transition.value
+    shot.framing = revised.framing
+    shot.first_frame_desc = revised.first_frame_desc
+    shot.last_frame_desc = revised.last_frame_desc
+    shot.motion_desc = revised.motion_desc
+    shot.variation_type = revised.variation_type
+    shot.stale = False
+    shot.approved = False
+    shot.approved_at = None
+    session.add(shot)
+    await session.commit()
+    return shot
+
+
+async def apply_proposal(session: AsyncSession, project_id: str, target: str, after: dict):
+    """Write an accepted proposal's ``after`` directly — the deterministic counterpart to
+    ``propose`` (what the user saw in the diff is exactly what gets committed)."""
+    kind, _, ident = target.partition(":")
+    if not ident:
+        raise ValueError("target must be 'scene:{id}', 'visual_brief:{scene_id}' or 'shot:{id}'")
+    if not isinstance(after, dict) or not after:
+        raise ValueError("after must be a non-empty object")
+    if kind == "scene":
+        return await _apply_scene(session, project_id, ident, after)
+    if kind == "visual_brief":
+        return await _apply_visual_brief(session, project_id, ident, after)
+    if kind == "shot":
+        return await _apply_shot(session, project_id, ident, after)
     raise ValueError(f"unknown revision target kind: {kind!r}")

@@ -487,11 +487,17 @@ export const reviseArtifact = (id: string, target: string, instruction: string) 
     method: "POST",
     body: JSON.stringify({ target, instruction }),
   });
-// dry-run: a non-destructive before/after proposal; commit by re-calling reviseArtifact
+// dry-run: a non-destructive before/after proposal; accept it with applyRevision
 export const proposeRevision = (id: string, target: string, instruction: string) =>
   api<ReviseProposal>(`/projects/${id}/revise`, {
     method: "POST",
     body: JSON.stringify({ target, instruction, dry_run: true }),
+  });
+// commit a proposal's exact `after` (deterministic — no agent re-run)
+export const applyRevision = (id: string, target: string, after: Record<string, unknown>) =>
+  api<{ target: string; revised: Record<string, unknown> }>(`/projects/${id}/revise/apply`, {
+    method: "POST",
+    body: JSON.stringify({ target, after }),
   });
 
 // ── review gate (P1): approve / lock / annotate the plan before generation ──

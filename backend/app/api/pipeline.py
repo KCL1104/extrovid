@@ -22,7 +22,7 @@ from app.schemas.pipeline import (
     Storyboard,
     VisualBrief,
 )
-from app.schemas.api import ImportSourceRequest, ReviseRequest
+from app.schemas.api import ApplyRevisionRequest, ImportSourceRequest, ReviseRequest
 from app.services import (
     memory_service,
     planning_service,
@@ -174,6 +174,23 @@ async def revise_artifact(
             )
             return {"target": body.target, "dry_run": True, **proposal}
         revised = await revise_service.revise(session, project_id, body.target, body.instruction)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from None
+    return {"target": body.target, "revised": revised.model_dump(mode="json")}
+
+
+@router.post("/revise/apply")
+async def apply_revision(
+    project_id: str, body: ApplyRevisionRequest, session: AsyncSession = Depends(get_session)
+):
+    """Commit an accepted revision proposal's exact ``after`` (no agent re-run) — the
+    deterministic 'Accept' path for the review-gate diff."""
+    try:
+        revised = await revise_service.apply_proposal(
+            session, project_id, body.target, body.after
+        )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from None
     except LookupError as e:

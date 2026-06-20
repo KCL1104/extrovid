@@ -11,6 +11,7 @@ import {
   Wand2,
 } from "lucide-react";
 import {
+  applyRevision,
   approvePlan,
   createAnnotation,
   getPlanCost,
@@ -20,7 +21,6 @@ import {
   lockShot,
   proposeRevision,
   resolveAnnotation,
-  reviseArtifact,
   type Annotation,
   type PlanCost,
   type ProjectState,
@@ -127,8 +127,9 @@ export default function ReviewPanel({
     }
   }
 
-  async function applyRevision(t: Target) {
-    await act(`apply:${t.id}`, () => reviseArtifact(projectId, `${t.kind}:${t.id}`, reviseText.trim()));
+  async function acceptProposal(t: Target) {
+    if (!proposal) return;
+    await act(`apply:${t.id}`, () => applyRevision(projectId, `${t.kind}:${t.id}`, proposal.after));
     setReviseFor(null);
     setReviseText("");
     setProposal(null);
@@ -302,7 +303,7 @@ export default function ReviewPanel({
                   previewing={busy === `preview:${scene.id}`}
                   applying={busy === `apply:${scene.id}`}
                   onPreview={() => preview(sceneTarget)}
-                  onApply={() => applyRevision(sceneTarget)}
+                  onApply={() => acceptProposal(sceneTarget)}
                 />
               )}
 
@@ -383,7 +384,7 @@ export default function ReviewPanel({
                           previewing={busy === `preview:${shot.id}`}
                           applying={busy === `apply:${shot.id}`}
                           onPreview={() => preview({ kind: "shot", id: shot.id })}
-                          onApply={() => applyRevision({ kind: "shot", id: shot.id })}
+                          onApply={() => acceptProposal({ kind: "shot", id: shot.id })}
                         />
                       )}
                       {notesByTarget(shot.id).length > 0 && (

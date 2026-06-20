@@ -9,6 +9,7 @@ from app.agents.tiers import (
     tier_for,
 )
 from app.pipeline.orchestrator import (
+    build_continuity_bible,
     build_scene_storyboard_prompt,
     build_script_prompt,
     run_pipeline,
@@ -83,6 +84,35 @@ def test_scene_prompt_tier_is_opt_in_and_backcompat():
     # no tier -> no pacing block (preserves the legacy 3-arg call sites)
     assert "PACING" not in build_scene_storyboard_prompt(_scene(), None, 10)
     assert "PACING" in build_scene_storyboard_prompt(_scene(), None, 10, tier=Tier.MEDIUM)
+
+
+def test_continuity_bible_injects_the_whole_arc():
+    scenes = [
+        SceneDraft(
+            order=0,
+            title="Hook",
+            summary="open on a rainy street at dusk",
+            beats=[SceneBeat(order=0, description="establish the street")],
+            est_duration_sec=10,
+        ),
+        SceneDraft(
+            order=1,
+            title="Reveal",
+            summary="the product on a kitchen counter",
+            beats=[SceneBeat(order=0, description="hero shot")],
+            est_duration_sec=10,
+        ),
+    ]
+    bible = build_continuity_bible(scenes)
+    assert "STORY CONTINUITY" in bible
+    assert "Hook" in bible and "Reveal" in bible
+    # scene 0's setting reaches scene 1's per-scene planner (cross-scene continuity)
+    p = build_scene_storyboard_prompt(scenes[1], None, 10, bible=bible)
+    assert "STORY CONTINUITY" in p
+    assert "rainy street at dusk" in p
+    # opt-out keeps the legacy call sites unchanged
+    assert "STORY CONTINUITY" not in build_scene_storyboard_prompt(scenes[1], None, 10)
+    assert build_continuity_bible([]) == ""
 
 
 async def test_long_brief_routes_to_long_tier_and_plans_per_scene():

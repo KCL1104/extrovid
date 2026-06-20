@@ -232,6 +232,13 @@ class ReviseProposal(BaseModel):
     instruction: str
 
 
+class ApplyRevisionRequest(BaseModel):
+    """Commit an accepted proposal's exact ``after`` (deterministic — no agent re-run)."""
+
+    target: str = Field(..., min_length=1, description="'scene:{id}' | 'visual_brief:{scene_id}' | 'shot:{id}'")
+    after: dict = Field(..., description="The proposed `after` object the user accepted.")
+
+
 # --- review gate (P1) ---
 
 
