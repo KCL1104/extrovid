@@ -11,19 +11,17 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import {
+  PLAN_STREAM_PATH,
   clarifyBrief,
   importSource,
   reviseArtifact,
-  runBrief,
-  runScript,
-  runStoryboard,
-  runVisualBriefs,
   type ClarifyAnswer,
   type ClarifyQuestion,
   type ClarifyResult,
   type ConceptSet,
   type Scene,
 } from "@/lib/api";
+import { streamSSE } from "@/lib/sse";
 import { Button, Eyebrow, Panel, Pill, Spinner, cn } from "@/components/ui";
 import { errMsg } from "@/components/workspace/shared";
 import { getUser } from "@/lib/auth";
@@ -45,7 +43,15 @@ const tierOf = (s: number) => (s <= 90 ? "short" : s <= 300 ? "medium" : "long")
 const TIER_SECONDS: Record<string, number> = { short: 20, medium: 180, long: 600 };
 
 type StageStatus = "idle" | "running" | "done" | "error";
-type Stage = { id: string; label: string; icon: LucideIcon; status: StageStatus; detail?: string };
+type Stage = {
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  status: StageStatus;
+  detail?: string;
+  index?: number; // live sub-progress (e.g. scene 3 of 7) → determinate bar while running
+  total?: number;
+};
 
 const FRESH_STAGES: Stage[] = [
   { id: "brief", label: "Parse brief", icon: FileText, status: "idle" },
@@ -139,7 +145,18 @@ export default function PlanPanel({
   }
 
   const mark = (id: string, status: StageStatus, detail?: string) =>
-    setStages((s) => s.map((st) => (st.id === id ? { ...st, status, detail } : st)));
+    setStages((s) =>
+      s.map((st) => (st.id === id ? { ...st, status, detail, index: undefined, total: undefined } : st)),
+    );
+  // live sub-progress inside a still-running stage ("scene 3 of 7") — keeps it running
+  const progress = (id: string, detail?: string, index?: number, total?: number) =>
+    setStages((s) =>
+      s.map((st) =>
+        st.id === id
+          ? { ...st, status: "running", detail: detail ?? st.detail, index, total }
+          : st,
+      ),
+    );
 
   async function run(clarifications: ClarifyAnswer[]) {
     if (running) return;
@@ -148,34 +165,32 @@ export default function PlanPanel({
     setRunning(true);
     setError(null);
     setStages(FRESH_STAGES.map((s) => ({ ...s })));
+    if (typeof window !== "undefined") localStorage.setItem("extrovid:dur", String(seconds));
+
+    // One streamed run (Brief→Storyboard) instead of four blocking calls: the server emits a
+    // `stage` event per phase (running / progress / done) so the console shows what it's doing
+    // live, and the stream never idles — fixing the "Failed to fetch" on long plans. The plan
+    // is persisted atomically server-side, signalled by the terminal `done` event.
     let current = "brief";
+    let finished = false;
+    let streamErr: string | null = null;
     try {
-      if (typeof window !== "undefined") localStorage.setItem("extrovid:dur", String(seconds));
-      mark("brief", "running");
-      const b = await runBrief(projectId, brief.trim(), clarifications, {
-        target_duration_sec: seconds,
+      await streamSSE(PLAN_STREAM_PATH(projectId), {
+        method: "POST",
+        body: { raw_prompt: brief.trim(), clarifications, target_duration_sec: seconds },
+        onEvent: (e) => {
+          if (e.type === "stage") {
+            current = (e.phase as string) ?? current;
+            if (e.status === "running") mark(current, "running");
+            else if (e.status === "progress")
+              progress(current, e.text as string | undefined, e.index as number, e.total as number);
+            else if (e.status === "done") mark(current, "done", e.detail as string | undefined);
+          } else if (e.type === "done") finished = true;
+          else if (e.type === "error") streamErr = (e.message as string) || "Planning failed.";
+        },
       });
-      mark(
-        "brief",
-        "done",
-        `${b.target_duration_sec}s · ${tierOf(b.target_duration_sec)} · ${b.aspect_ratio}`,
-      );
-
-      current = "script";
-      mark("script", "running");
-      const script = await runScript(projectId, b);
-      mark("script", "done", `${script.scenes.length} scenes — “${script.logline}”`);
-
-      current = "looks";
-      mark("looks", "running");
-      const plans = await runVisualBriefs(projectId, script);
-      mark("looks", "done", `${plans.concept_specs.length} concept sets planned`);
-
-      current = "board";
-      mark("board", "running");
-      await runStoryboard(projectId, script, plans.concept_specs, b.target_duration_sec);
-      mark("board", "done", "shot list ready");
-
+      if (streamErr) throw new Error(streamErr);
+      if (!finished) throw new Error("The planning stream ended early — please retry.");
       await onPlanned();
     } catch (e) {
       mark(current, "error");
@@ -517,6 +532,14 @@ export default function PlanPanel({
                       {s.status === "error" && <span className="ml-2 text-fail">failed</span>}
                     </p>
                     {s.detail && <p className="mt-0.5 text-xs text-muted">{s.detail}</p>}
+                    {s.status === "running" && s.total ? (
+                      <div className="mt-1.5 h-1 w-full max-w-[12rem] overflow-hidden rounded-full bg-border">
+                        <div
+                          className="h-full rounded-full bg-accent transition-all duration-500"
+                          style={{ width: `${Math.round(((s.index ?? 0) / s.total) * 100)}%` }}
+                        />
+                      </div>
+                    ) : null}
                   </div>
                 </li>
               );

@@ -354,7 +354,6 @@ export type ScriptDraft = {
     est_duration_sec: number;
   }[];
 };
-export type VisualPlans = { visual_briefs: VisualBrief[]; concept_specs: unknown[] };
 
 export type PipelineResult = {
   brief: { product?: string; target_duration_sec: number; platform: string; audience?: string };
@@ -418,36 +417,10 @@ export const clarifyBrief = (id: string, raw_prompt: string) =>
     body: JSON.stringify({ raw_prompt }),
   });
 
-// per-stage planning (staged run console shows live progress per stage)
-export const runBrief = (
-  id: string,
-  raw_prompt: string,
-  clarifications: ClarifyAnswer[] = [],
-  opts?: { target_duration_sec?: number; format?: string | null },
-) =>
-  api<BriefInput>(`/projects/${id}/brief`, {
-    method: "POST",
-    body: JSON.stringify({
-      raw_prompt,
-      ...(clarifications.length ? { clarifications } : {}),
-      ...(opts?.target_duration_sec != null ? { target_duration_sec: opts.target_duration_sec } : {}),
-      ...(opts?.format ? { format: opts.format } : {}),
-    }),
-  });
-export const runScript = (id: string, brief: BriefInput) =>
-  api<ScriptDraft>(`/projects/${id}/script`, { method: "POST", body: JSON.stringify(brief) });
-export const runVisualBriefs = (id: string, script: ScriptDraft) =>
-  api<VisualPlans>(`/projects/${id}/visual-briefs`, { method: "POST", body: JSON.stringify(script) });
-export const runStoryboard = (
-  id: string,
-  script: ScriptDraft,
-  concept_specs: unknown[],
-  target_duration_sec: number,
-) =>
-  api<unknown>(`/projects/${id}/storyboard`, {
-    method: "POST",
-    body: JSON.stringify({ script, concept_specs, target_duration_sec }),
-  });
+// Full plan (Brief->Storyboard) is streamed over SSE — see lib/sse.ts `streamSSE` and
+// PlanPanel. The endpoint emits live per-stage progress and persists atomically; a single
+// blocking request can't be used (multi-minute plans get idle-cut → "Failed to fetch").
+export const PLAN_STREAM_PATH = (id: string) => `/projects/${id}/plan/stream`;
 
 export const getScript = (id: string) => api<Scene[]>(`/projects/${id}/script`);
 export const getConceptSets = (id: string) => api<ConceptSet[]>(`/projects/${id}/concept-sets`);

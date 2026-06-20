@@ -58,6 +58,26 @@ async def test_director_stream_persists_the_turn(client):
     assert turns[-1]["role"] == "assistant"
 
 
+async def test_plan_stream_emits_stage_events_then_done_and_persists(client):
+    pid = (await client.post("/api/projects", json={"title": "Plan stream"})).json()["id"]
+    body = ""
+    async with client.stream(
+        "POST", f"/api/projects/{pid}/plan/stream", json={"raw_prompt": "a 20s teaser"}
+    ) as resp:
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/event-stream")
+        async for chunk in resp.aiter_text():
+            body += chunk
+    # all four stages stream, each transitions to done, then one terminal done frame
+    for phase in ("brief", "script", "looks", "board"):
+        assert f'"phase": "{phase}"' in body
+    assert '"status": "done"' in body
+    assert '"type": "done"' in body
+    # and the plan was persisted atomically (script + storyboard exist afterwards)
+    assert len((await client.get(f"/api/projects/{pid}/script")).json()) > 0
+    assert len((await client.get(f"/api/projects/{pid}/storyboard")).json()) > 0
+
+
 def test_event_bus_fans_out_and_cleans_up():
     q = event_bus.subscribe("p1")
     event_bus.publish("p1", {"type": "job", "shot_id": "s1"})

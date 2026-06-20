@@ -9,6 +9,7 @@ mock model stays consistent with the brief; real Qwen also benefits from the exp
 """
 
 import asyncio
+from collections.abc import Awaitable, Callable
 
 from app.agents.brief_agent import brief_agent
 from app.agents.cast_agent import cast_agent
@@ -371,6 +372,7 @@ async def run_storyboard(
     target_duration_sec: int,
     clarifications: list[ClarifyAnswer] | None = None,
     cast: list[CastMember] | None = None,
+    on_scene: Callable[[int, int, str], Awaitable[None]] | None = None,
 ) -> Storyboard:
     """Per-scene fold: each scene is planned by its own agent call against its own duration
     budget, threading a CONTINUITY baton from the previous scene's ending. Global shot order
@@ -387,7 +389,13 @@ async def run_storyboard(
     next_order = 0
     camera_offset = 0  # makes per-scene-local camera_ids globally unique
     prev_tail: str | None = None
-    for scene in sorted(script.scenes, key=lambda s: s.order):
+    scenes_sorted = sorted(script.scenes, key=lambda s: s.order)
+    for i, scene in enumerate(scenes_sorted):
+        # progress hook: announce each scene before its (multi-second) planning call so the
+        # SSE stream can show "breaking down scene k of n" — this is also what keeps the
+        # connection from idling through the longest planning stage.
+        if on_scene:
+            await on_scene(i, len(scenes_sorted), scene.title)
         budget = min(MAX_SCENE_DURATION_SEC, round(scene.est_duration_sec * scale, 1))
         result = await run_agent(
             scene_storyboard_agent,
@@ -434,25 +442,72 @@ async def run_pipeline(
     clarifications: list[ClarifyAnswer] | None = None,
     target_duration_sec: int | None = None,
     format: VideoFormat | None = None,
+    on_progress: Callable[[dict], Awaitable[None]] | None = None,
 ) -> PipelineResult:
+    """Run the whole plan. ``on_progress`` (optional) is awaited with a stage dict at every
+    milestone — ``{phase, status: running|progress|done, detail?/text?/index?/total?}`` — so a
+    streaming endpoint can show live per-stage progress. Without it the run is silent (the
+    ``/run`` callers are unaffected)."""
+
+    async def emit(event: dict) -> None:
+        if on_progress:
+            await on_progress(event)
+
+    await emit({"phase": "brief", "status": "running"})
     filled = await run_brief(brief_in.raw_prompt, clarifications, target_duration_sec, format)
+    await emit(
+        {
+            "phase": "brief",
+            "status": "done",
+            "detail": f"{filled.target_duration_sec}s · "
+            f"{tier_for(filled.target_duration_sec).name.lower()} · {filled.aspect_ratio.value}",
+        }
+    )
+
     # LONG tier: design the chapter outline first, then write the script to realize it
     acts: list[ActDraft] = []
+    await emit({"phase": "script", "status": "running"})
     if tier_for(filled.target_duration_sec) is Tier.LONG:
+        await emit({"phase": "script", "status": "progress", "text": "Designing the chapter outline…"})
         acts = await run_outline(filled, clarifications)
     script = await run_script(filled, clarifications, acts)
+    await emit(
+        {"phase": "script", "status": "done", "detail": f'{len(script.scenes)} scenes — "{script.logline}"'}
+    )
 
     # cast extraction and per-scene visual dev are independent — run concurrently
-    cast, *plans = await asyncio.gather(
-        run_cast(script),
-        *(run_visual_plan(scene, clarifications) for scene in script.scenes),
-    )
+    n = len(script.scenes)
+    await emit({"phase": "looks", "status": "running", "total": n})
+    looks_done = 0
+
+    async def _plan(scene: SceneDraft) -> SceneVisualPlan:
+        nonlocal looks_done
+        plan = await run_visual_plan(scene, clarifications)
+        looks_done += 1
+        await emit(
+            {"phase": "looks", "status": "progress", "index": looks_done, "total": n,
+             "text": f"Developing looks — {looks_done} of {n} scenes"}
+        )
+        return plan
+
+    cast, *plans = await asyncio.gather(run_cast(script), *(_plan(scene) for scene in script.scenes))
     visual_briefs = [plan.visual_brief for plan in plans]
     concept_specs = [plan.concept_set for plan in plans]
+    await emit({"phase": "looks", "status": "done", "detail": f"{len(concept_specs)} concept sets planned"})
+
+    await emit({"phase": "board", "status": "running", "total": n})
+
+    async def _board(index: int, total: int, title: str) -> None:
+        await emit(
+            {"phase": "board", "status": "progress", "index": index + 1, "total": total,
+             "text": f"Breaking down scene {index + 1} of {total}: {title}"}
+        )
 
     storyboard = await run_storyboard(
-        script, visual_briefs, concept_specs, filled.target_duration_sec, clarifications, cast
+        script, visual_briefs, concept_specs, filled.target_duration_sec, clarifications, cast,
+        on_scene=_board,
     )
+    await emit({"phase": "board", "status": "done", "detail": "shot list ready"})
     return PipelineResult(
         brief=filled,
         acts=acts,

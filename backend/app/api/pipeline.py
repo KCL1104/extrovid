@@ -4,12 +4,17 @@ Each per-stage endpoint generates and persists its slice (replace semantics). ``
 the whole pipeline and persists everything atomically — this is the Phase-0 exit endpoint.
 """
 
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.tiers import Tier, tier_for
 from app.api.deps import get_owned_project
+from app.core import event_bus
+from app.core.config import get_settings
 from app.core.db import get_session
 from app.models.concept import VisualConceptSet
 from app.models.enums import ProjectStatus
@@ -265,3 +270,64 @@ async def run_full_pipeline(
     )
     await planning_service.persist_pipeline(session, project, result, body.clarifications)
     return result
+
+
+@router.post("/plan/stream")
+async def run_pipeline_stream(
+    body: RunRequest,
+    project: Project = Depends(get_owned_project),
+    session: AsyncSession = Depends(get_session),
+):
+    """The full Brief->Storyboard plan, streamed over SSE so the UI shows live per-stage
+    progress (`stage` events: running / progress / done), then a terminal `done`.
+
+    This is also the FIX for "Failed to fetch" on long plans: ``/run`` holds one silent HTTP
+    request open for the whole multi-minute storyboard, which the Railway edge idle-cuts. Here
+    progress frames (and a keepalive between them) keep the socket alive. Persists atomically
+    via ``persist_pipeline`` once the run completes — a failed run leaves no partial plan."""
+    queue: asyncio.Queue = asyncio.Queue(maxsize=200)
+    keepalive = get_settings().sse_keepalive_sec
+    done = object()  # sentinel: wakes the drain loop the instant the run finishes
+
+    async def on_progress(event: dict) -> None:
+        await queue.put(event)
+
+    async def gen():
+        yield event_bus.sse({"type": "ready"})
+        task = asyncio.create_task(
+            orchestrator.run_pipeline(
+                BriefInput(raw_prompt=body.raw_prompt),
+                clarifications=body.clarifications,
+                target_duration_sec=body.target_duration_sec,
+                format=body.format,
+                on_progress=on_progress,
+            )
+        )
+        task.add_done_callback(lambda _: queue.put_nowait(done) if not queue.full() else None)
+
+        # forward progress; emit a keepalive comment if a single stage runs silently longer
+        # than the keepalive window. The done+empty guard (not the sentinel) is what
+        # guarantees termination even if the sentinel was dropped on a full queue.
+        while not (task.done() and queue.empty()):
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=keepalive)
+            except TimeoutError:
+                yield ":\n\n"
+                continue
+            if event is done:
+                continue
+            yield event_bus.sse({"type": "stage", **event})
+
+        try:
+            result = await task
+        except Exception as exc:  # noqa: BLE001 - a clean error frame, never a 500 mid-stream
+            yield event_bus.sse({"type": "error", "message": str(exc)})
+            return
+        await planning_service.persist_pipeline(session, project, result, body.clarifications)
+        yield event_bus.sse({"type": "done"})
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
