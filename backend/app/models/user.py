@@ -31,4 +31,6 @@ class User(SQLModel, table=True):
     daily_video_cap: int = 3
     daily_image_cap: int = 20
     is_admin: bool = False
+    # advisory default format for NEW projects (pre-fills the per-project length selector)
+    default_format: str | None = Field(default=None)
     created_at: datetime = Field(default_factory=_now)

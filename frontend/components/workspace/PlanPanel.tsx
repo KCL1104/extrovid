@@ -26,6 +26,7 @@ import {
 } from "@/lib/api";
 import { Button, Eyebrow, Panel, Pill, Spinner, cn } from "@/components/ui";
 import { errMsg } from "@/components/workspace/shared";
+import { getUser } from "@/lib/auth";
 
 const EXAMPLE_BRIEFS = [
   "A 20s vertical teaser for a specialty coffee brand — warm, energetic, ends on the logo.",
@@ -70,9 +71,13 @@ export default function PlanPanel({
   onRefresh: () => Promise<void> | void;
 }) {
   const [brief, setBrief] = useState("");
-  // length/format selector — remembered across sessions (per-project authority at plan time)
+  // length/format selector — remembered across sessions (per-project authority at plan time);
+  // falls back to the account default (Settings → the booth) then "social"
   const [format, setFormat] = useState<string>(
-    () => (typeof window !== "undefined" && localStorage.getItem("extrovid:format")) || "social",
+    () =>
+      (typeof window !== "undefined" && localStorage.getItem("extrovid:format")) ||
+      getUser()?.default_format ||
+      "social",
   );
   const [dur, setDur] = useState<string>(
     () => (typeof window !== "undefined" && localStorage.getItem("extrovid:dur")) || "20",

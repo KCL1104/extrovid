@@ -55,6 +55,24 @@ async def test_register_returns_usable_token(raw_client):
     assert me.json()["email"] == "a@b.com"
 
 
+async def test_update_default_format_preference(raw_client):
+    token = (
+        await raw_client.post(
+            "/api/auth/register", json={"email": "fmt@b.com", "password": "password123"}
+        )
+    ).json()["token"]
+    h = _hdr(token)
+    assert (await raw_client.get("/api/auth/me", headers=h)).json()["default_format"] is None
+
+    r = await raw_client.patch("/api/auth/me", json={"default_format": "explainer"}, headers=h)
+    assert r.status_code == 200 and r.json()["default_format"] == "explainer"
+    assert (await raw_client.get("/api/auth/me", headers=h)).json()["default_format"] == "explainer"
+
+    # clearing it sets it back to null
+    cleared = await raw_client.patch("/api/auth/me", json={"default_format": None}, headers=h)
+    assert cleared.json()["default_format"] is None
+
+
 async def test_register_validates(raw_client):
     assert (
         await raw_client.post(

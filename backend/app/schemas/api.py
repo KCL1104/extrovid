@@ -56,6 +56,7 @@ class UserRead(BaseModel):
     daily_video_cap: int
     daily_image_cap: int
     created_at: datetime | None = None
+    default_format: str | None = None  # advisory default for new projects
     # Derived flags (not columns) — let the settings UI show the sign-in method.
     has_password: bool = False
     is_google: bool = False
@@ -69,9 +70,16 @@ class UserRead(BaseModel):
             daily_video_cap=user.daily_video_cap,
             daily_image_cap=user.daily_image_cap,
             created_at=user.created_at,
+            default_format=user.default_format,
             has_password=user.password_hash is not None,
             is_google=user.google_sub is not None,
         )
+
+
+class UpdatePreferencesRequest(BaseModel):
+    """Account preferences (advisory; never overrides a per-project choice)."""
+
+    default_format: VideoFormat | None = None
 
 
 class ChangePasswordRequest(BaseModel):

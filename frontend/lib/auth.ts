@@ -12,6 +12,7 @@ export type AuthUser = {
   daily_video_cap: number;
   daily_image_cap: number;
   created_at?: string; // ISO; absent on older cached records
+  default_format?: string | null; // advisory default for new projects
   has_password?: boolean;
   is_google?: boolean;
 };

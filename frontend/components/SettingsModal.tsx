@@ -7,9 +7,10 @@ import {
   deleteAccount,
   getUsage,
   rotateToken,
+  updatePreferences,
   type Usage,
 } from "@/lib/api";
-import { clearAuth, getUser, setToken } from "@/lib/auth";
+import { clearAuth, getUser, setToken, setUser } from "@/lib/auth";
 import { Alert, Button, Eyebrow, Input, Pill, cn } from "@/components/ui";
 
 // "the booth" — a two-pane director's-studio settings console. Mounted only while open
@@ -165,6 +166,23 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
 
   const [active, setActive] = useState<SectionId>("account");
   const [usage, setUsage] = useState<Usage | null>(null);
+  // advisory default format for new projects (pre-fills the per-project length selector)
+  const [defFmt, setDefFmt] = useState<string>(user?.default_format ?? "");
+  const [fmtBusy, setFmtBusy] = useState(false);
+  async function saveDefaultFormat(v: string) {
+    setDefFmt(v);
+    setFmtBusy(true);
+    try {
+      const updated = await updatePreferences(v || null);
+      setUser(updated);
+      // mirror to the per-project picker's remembered default so it takes effect immediately
+      if (typeof window !== "undefined" && v) localStorage.setItem("extrovid:format", v);
+    } catch {
+      /* advisory pref — ignore transient failures */
+    } finally {
+      setFmtBusy(false);
+    }
+  }
 
   // password change
   const [newPw, setNewPw] = useState("");
@@ -323,7 +341,31 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                       <Pill>{user?.is_google ? "google" : hasPassword ? "password" : "—"}</Pill>
                     </SettingRow>
                     {since && <SettingRow label="member since">{since}</SettingRow>}
+                    {!user?.is_admin && (
+                      <SettingRow label="default format">
+                        <select
+                          value={defFmt}
+                          onChange={(e) => saveDefaultFormat(e.target.value)}
+                          disabled={fmtBusy}
+                          aria-label="Default format for new projects"
+                          className="rounded-[var(--radius)] border border-border bg-bg-soft px-2 py-1 font-mono text-xs text-fg outline-none focus:border-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+                        >
+                          <option value="">Ask each time</option>
+                          <option value="social">Social clip</option>
+                          <option value="ad">Ad / Promo</option>
+                          <option value="explainer">Explainer</option>
+                          <option value="youtube">YouTube</option>
+                          <option value="documentary">Documentary</option>
+                        </select>
+                      </SettingRow>
+                    )}
                   </div>
+                  {!user?.is_admin && (
+                    <p className="mt-2 px-1 text-xs leading-relaxed text-faint">
+                      Pre-fills the length/format on new projects — you can still change it per
+                      video at the Plan step.
+                    </p>
+                  )}
                 </>
               )}
 

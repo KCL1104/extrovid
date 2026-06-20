@@ -20,6 +20,7 @@ from app.schemas.api import (
     ChangePasswordRequest,
     LoginRequest,
     RegisterRequest,
+    UpdatePreferencesRequest,
     UserRead,
 )
 from app.services import asset_service, auth_service, google_oauth, project_service
@@ -100,6 +101,22 @@ async def me(auth: AuthCtx = Depends(current_auth)):
             has_password=True,
             is_google=False,
         )
+    return UserRead.from_user(auth.user)
+
+
+@router.patch("/me", response_model=UserRead)
+async def update_me(
+    body: UpdatePreferencesRequest,
+    auth: AuthCtx = Depends(current_auth),
+    session: AsyncSession = Depends(get_session),
+):
+    """Update account preferences (currently the advisory default format for new projects)."""
+    if auth.user is None:
+        raise HTTPException(status_code=400, detail="the admin account is managed via env, not here")
+    auth.user.default_format = body.default_format.value if body.default_format else None
+    session.add(auth.user)
+    await session.commit()
+    await session.refresh(auth.user)
     return UserRead.from_user(auth.user)
 
 

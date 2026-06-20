@@ -371,6 +371,9 @@ export const register = (email: string, password: string) =>
 export const login = (email: string, password: string) =>
   api<AuthResponse>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
 export const me = () => api<AuthUser>("/auth/me");
+// account preferences — advisory default format for new projects (pre-fill only)
+export const updatePreferences = (default_format: string | null) =>
+  api<AuthUser>("/auth/me", { method: "PATCH", body: JSON.stringify({ default_format }) });
 export const rotateToken = () => api<{ token: string }>("/auth/rotate-token", { method: "POST" });
 export const logout = () => api<void>("/auth/logout", { method: "POST" });
 // current_password omitted for a Google-only account setting its first password
