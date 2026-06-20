@@ -1,10 +1,12 @@
 # Length tiers + plan review/annotate gate — implementation spec
 
-> Status (2026-06-20): **P0 DONE** (cd4848b — tier scaffolding) · **P1 DONE** (backend
-> 2b8b5b7 — review gate/annotations/propose-diff/migration; frontend 7ff8d74 — Plan Review
-> tab). Full backend suite + tsc + eslint + next build all green. **P2 NEXT** (continuity
-> bible + still-vs-motion toggle + non-destructive diff hardening). Design locked via research
-> workflow `wf_1c125d7d` (9 agents). Companion memory: `extrovid-length-review-plan`.
+> Status (2026-06-20): **P0 DONE** (cd4848b) · **P1 DONE** (2b8b5b7 backend, 7ff8d74 frontend) ·
+> **P2 DONE** (7952013 — continuity bible + non-destructive diff "apply exact proposal" +
+> demote-on-revise re-gating; **still-vs-motion moved to P3** — its cut-side freeze-frame
+> rendering belongs with the cut/cost work there). Full backend suite + tsc + eslint + next
+> build all green. **P3 NEXT** (LONG chapter layer + outline-first gate + caps→~20min +
+> per-project budget + still-vs-motion render). Design locked via research workflow
+> `wf_1c125d7d`. Companion memory: `extrovid-length-review-plan`.
 > NOTE: the backend test suite runs against a REMOTE Railway Postgres by default
 > (`TEST_DATABASE_URL`); run locally with `TEST_DATABASE_URL="" pytest` to use fast in-memory
 > sqlite and avoid cross-run deadlocks.
@@ -137,8 +139,8 @@ All schema changes ship with an Alembic migration (`backend/migrations/`).
 |---|---|---|
 | **P0** | De-hardcode short-form + `Tier` scaffolding (prompts + helper). No DB. | S (1–3d) |
 | **P1** | Lightweight review gate: status/approve/lock/annotation/diff + Plan Review UI + generation gating. | M (1–2wk) |
-| **P2** | Continuity bible + still-vs-motion toggle + non-destructive diff completion. | M (1–2wk) |
-| **P3** | LONG tier: chapter layer + outline-first gate + cost/cap/budget policy + keyframe-first render. | L (3–5wk) |
+| **P2** | ✅ Continuity bible + non-destructive diff "apply exact" + demote-on-revise. (still-vs-motion → P3.) | M |
+| **P3** | LONG tier: chapter layer + outline-first gate + cost/cap/budget policy + keyframe-first render + **still-vs-motion** (render_mode + cut freeze-frames). | L (3–5wk) |
 | P4 (deferred) | Collaborative review (share links, threads), multi-scale audio, ViMax-style RAG. | XL (demand-gated) |
 
 ## 9. Risks & mitigations

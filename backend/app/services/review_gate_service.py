@@ -15,7 +15,7 @@ from app.agents.tiers import Tier, tier_for
 from app.core import pricing
 from app.core.config import get_settings
 from app.models.annotation import Annotation
-from app.models.enums import AnnotationStatus, ProjectStatus
+from app.models.enums import AnnotationKind, AnnotationStatus, ProjectStatus
 from app.models.project import Project
 from app.models.scene import Scene
 from app.models.shot import Shot
@@ -135,6 +135,15 @@ async def set_shot_lock(session: AsyncSession, project_id: str, shot_id: str, lo
 async def create_annotation(
     session: AsyncSession, project_id: str, body: AnnotationCreate
 ) -> Annotation:
+    # anchor must belong to THIS project (no cross-project / dangling anchors)
+    if body.target_kind == AnnotationKind.SHOT:
+        row = await session.get(Shot, body.target_id)
+        if row is None or row.project_id != project_id:
+            raise LookupError("shot not found")
+    elif body.target_kind in (AnnotationKind.SCENE, AnnotationKind.VISUAL_BRIEF):
+        row = await session.get(Scene, body.target_id)
+        if row is None or row.project_id != project_id:
+            raise LookupError("scene not found")
     ann = Annotation(
         project_id=project_id,
         target_kind=body.target_kind.value,

@@ -41,6 +41,54 @@ async def test_medium_is_gated_until_approved(client):
     assert ok.status_code == 200
 
 
+async def test_revising_after_approval_re_gates(client):
+    """Editing the plan after sign-off invalidates it — generation re-locks until re-approved."""
+    pid = await _plan(client, "a 180s explainer video")
+    await client.post(f"/api/projects/{pid}/plan/approve", json={})
+    assert (await client.get(f"/api/projects/{pid}/state")).json()["project_status"] == "approved"
+
+    shot = (await client.get(f"/api/projects/{pid}/storyboard")).json()[0]
+    r = await client.post(
+        f"/api/projects/{pid}/revise",
+        json={"target": f"shot:{shot['id']}", "instruction": "make it wider"},
+    )
+    assert r.status_code == 200
+    assert (await client.get(f"/api/projects/{pid}/state")).json()["project_status"] == "storyboarded"
+    blocked = await client.post(f"/api/projects/{pid}/scenes/0/generate-all", json={})
+    assert blocked.status_code == 409
+
+
+async def test_revising_visual_brief_after_approval_re_gates(client):
+    """A brief edit changes what renders, so it must also invalidate the sign-off."""
+    pid = await _plan(client, "a 180s explainer video")
+    s0 = next(
+        s for s in (await client.get(f"/api/projects/{pid}/script")).json() if s["order"] == 0
+    )
+    await client.post(f"/api/projects/{pid}/plan/approve", json={})
+    assert (await client.get(f"/api/projects/{pid}/state")).json()["project_status"] == "approved"
+
+    r = await client.post(
+        f"/api/projects/{pid}/revise",
+        json={"target": f"visual_brief:{s0['id']}", "instruction": "warmer palette"},
+    )
+    assert r.status_code == 200
+    assert (await client.get(f"/api/projects/{pid}/state")).json()["project_status"] == "storyboarded"
+    blocked = await client.post(f"/api/projects/{pid}/scenes/0/generate-all", json={})
+    assert blocked.status_code == 409
+
+
+async def test_annotation_rejects_foreign_target(client):
+    """An anchor must belong to the path project — no cross-project / dangling anchors."""
+    pid_a = await _plan(client, "a 20s teaser")
+    shot_a = (await client.get(f"/api/projects/{pid_a}/storyboard")).json()[0]
+    pid_b = (await client.post("/api/projects", json={"title": "B"})).json()["id"]
+    bad = await client.post(
+        f"/api/projects/{pid_b}/annotations",
+        json={"target_kind": "shot", "target_id": shot_a["id"], "intent": "comment", "text": "x"},
+    )
+    assert bad.status_code == 404
+
+
 async def test_plan_cost_estimate(client):
     pid = await _plan(client, "a 180s explainer video")
     cost = (await client.get(f"/api/projects/{pid}/plan/cost")).json()
@@ -102,6 +150,7 @@ async def test_revise_dry_run_is_non_destructive(client):
     body = proposal.json()
     assert body["dry_run"] is True
     assert body["kind"] == "scene"
+    assert body["instruction"] == "moodier"  # echoed back so the proposal is self-describing
     assert body["before"]["title"] == before_title
     assert body["after"]["title"] != before_title
 

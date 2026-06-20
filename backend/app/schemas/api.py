@@ -166,7 +166,7 @@ class SceneRead(BaseModel):
     est_duration_sec: float
     stale: bool = False  # an upstream artifact changed after this was planned
     approved: bool = False  # signed off at the review gate
-    locked: bool = False  # frozen against bulk regeneration
+    locked: bool = False  # blocks targeted revision (revise/apply)
 
 
 class LookFrameRead(BaseModel):
@@ -434,7 +434,7 @@ class ShotRead(BaseModel):
     keyframe_score: float | None = None  # keyframe gate score 0-10
     stale: bool = False  # an upstream artifact changed after this was planned
     approved: bool = False  # signed off at the review gate
-    locked: bool = False  # frozen against bulk regeneration
+    locked: bool = False  # blocks targeted revision (revise/apply)
 
 
 class ShotUpdate(BaseModel):

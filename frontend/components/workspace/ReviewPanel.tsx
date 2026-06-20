@@ -251,7 +251,7 @@ export default function ReviewPanel({
                     </Button>
                   )}
                   <button
-                    title={scene.locked ? "Unlock scene" : "Lock scene (excluded from bulk regen)"}
+                    title={scene.locked ? "Unlock scene" : "Lock scene (blocks revise)"}
                     onClick={() => act(`lock:${scene.id}`, () => lockScene(projectId, scene.id, !scene.locked))}
                     className="inline-flex min-h-9 items-center rounded-[var(--radius)] px-2 text-faint transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   >

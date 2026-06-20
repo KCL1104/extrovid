@@ -79,7 +79,10 @@ async def lock_shot(
 async def create_annotation(
     project_id: str, body: AnnotationCreate, session: AsyncSession = Depends(get_session)
 ):
-    ann = await review_gate_service.create_annotation(session, project_id, body)
+    try:
+        ann = await review_gate_service.create_annotation(session, project_id, body)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from None
     return AnnotationRead.model_validate(ann)
 
 

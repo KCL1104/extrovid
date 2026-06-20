@@ -172,7 +172,12 @@ async def revise_artifact(
             proposal = await revise_service.propose(
                 session, project_id, body.target, body.instruction
             )
-            return {"target": body.target, "dry_run": True, **proposal}
+            return {
+                "target": body.target,
+                "dry_run": True,
+                "instruction": body.instruction,
+                **proposal,
+            }
         revised = await revise_service.revise(session, project_id, body.target, body.instruction)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from None

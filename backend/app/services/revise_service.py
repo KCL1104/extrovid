@@ -12,9 +12,33 @@ from app.agents.revise_agent import revise_scene_agent, revise_shot_agent, revis
 from app.core.agent_run import run_agent
 from app.core.logging import log
 from app.models.concept import VisualConceptSet
+from app.models.enums import ProjectStatus
+from app.models.project import Project
 from app.models.scene import Scene
 from app.models.shot import Shot
 from app.schemas.pipeline import SceneDraft, ShotDTO, VisualBrief
+
+
+async def _demote_if_approved(session: AsyncSession, project_id: str) -> None:
+    """Editing a scene/shot after the plan was signed off invalidates that sign-off — drop the
+    project back to STORYBOARDED so generation re-gates until the user approves again."""
+    project = await session.get(Project, project_id)
+    if project and project.status == ProjectStatus.APPROVED.value:
+        project.status = ProjectStatus.STORYBOARDED.value
+        session.add(project)
+
+
+async def _regate_scene(session: AsyncSession, project_id: str, scene_id: str) -> None:
+    """A changed scene art-direction invalidates the human sign-off: un-approve the scene and
+    its shots and demote the project so a gated tier re-gates. Does NOT mark shots stale —
+    callers that need the staleness cascade do it themselves."""
+    await session.execute(
+        update(Scene).where(Scene.id == scene_id).values(approved=False, approved_at=None)
+    )
+    await session.execute(
+        update(Shot).where(Shot.scene_id == scene_id).values(approved=False, approved_at=None)
+    )
+    await _demote_if_approved(session, project_id)
 
 
 def _revise_prompt(kind: str, current_json: str, instruction: str, scene_order: int) -> str:
@@ -69,6 +93,7 @@ async def revise_scene(
     await session.execute(
         update(Shot).where(Shot.scene_id == scene_id).values(stale=True, approved=False)
     )
+    await _demote_if_approved(session, project_id)
     await session.commit()
     log.info("revise.scene project=%s scene=%s: %s", project_id, scene_id, instruction[:80])
     return scene
@@ -101,8 +126,11 @@ async def revise_visual_brief(
     cs.visual_brief = result.output.model_dump(mode="json")
     cs.stale = False
     session.add(cs)
-    # shot PROMPTS recompose from the brief at generation time — shots stay fresh;
-    # only takes rendered before this revision predate the new direction
+    # shot PROMPTS recompose from the brief at generation time — shots stay FRESH (not marked
+    # stale, so existing takes aren't forced to re-render). But the art direction that will
+    # render changed, so the human sign-off is invalid: un-approve the scene + its shots and
+    # demote the project so a gated tier re-gates.
+    await _regate_scene(session, project_id, scene_id)
     await session.commit()
     log.info("revise.visual project=%s scene=%s: %s", project_id, scene_id, instruction[:80])
     return cs
@@ -157,7 +185,12 @@ async def revise_shot(
     # a changed shot needs re-approval at the gate
     shot.approved = False
     shot.approved_at = None
+    if shot.scene_id:  # a changed shot invalidates its parent scene's sign-off too
+        await session.execute(
+            update(Scene).where(Scene.id == shot.scene_id).values(approved=False, approved_at=None)
+        )
     session.add(shot)
+    await _demote_if_approved(session, project_id)
     await session.commit()
     log.info("revise.shot project=%s shot=%s: %s", project_id, shot_id, instruction[:80])
     return shot
@@ -303,13 +336,8 @@ async def _apply_scene(session, project_id, scene_id, after: dict) -> Scene:
         raise LookupError("scene not found")
     if scene.locked:
         raise ValueError("scene is locked; unlock it before revising")
-    revised = SceneDraft(
-        order=scene.order,
-        title=after["title"],
-        summary=after["summary"],
-        beats=after["beats"],
-        est_duration_sec=after["est_duration_sec"],
-    )
+    # validate through the model (a malformed `after` raises ValueError -> 422, not KeyError)
+    revised = SceneDraft.model_validate({**after, "order": scene.order})
     scene.title = revised.title
     scene.summary = revised.summary
     scene.beats = [b.model_dump(mode="json") for b in revised.beats]
@@ -324,6 +352,7 @@ async def _apply_scene(session, project_id, scene_id, after: dict) -> Scene:
     await session.execute(
         update(Shot).where(Shot.scene_id == scene_id).values(stale=True, approved=False)
     )
+    await _demote_if_approved(session, project_id)
     await session.commit()
     return scene
 
@@ -346,6 +375,7 @@ async def _apply_visual_brief(session, project_id, scene_id, after: dict) -> Vis
     cs.visual_brief = VisualBrief.model_validate(after).model_dump(mode="json")
     cs.stale = False
     session.add(cs)
+    await _regate_scene(session, project_id, scene_id)  # re-gate: art direction changed
     await session.commit()
     return cs
 
@@ -374,7 +404,12 @@ async def _apply_shot(session, project_id, shot_id, after: dict) -> Shot:
     shot.stale = False
     shot.approved = False
     shot.approved_at = None
+    if shot.scene_id:  # a changed shot invalidates its parent scene's sign-off too
+        await session.execute(
+            update(Scene).where(Scene.id == shot.scene_id).values(approved=False, approved_at=None)
+        )
     session.add(shot)
+    await _demote_if_approved(session, project_id)
     await session.commit()
     return shot
 
