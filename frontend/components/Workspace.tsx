@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   assembleRoughCut,
+  deleteProject,
   editVersion,
   generateAllKeyframes,
   generateAllShots,
@@ -49,6 +51,7 @@ import CutPlanner from "@/components/workspace/CutPlanner";
 import QueuePanel from "@/components/workspace/QueuePanel";
 import CastPanel from "@/components/workspace/CastPanel";
 import DirectorPanel from "@/components/workspace/DirectorPanel";
+import { PROJECTS_CHANGED } from "@/components/Sidebar";
 import {
   aspectClass,
   errMsg,
@@ -101,6 +104,12 @@ export default function Workspace({ projectId }: { projectId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [announce, setAnnounce] = useState("");
+  // project actions (⋯) menu + delete confirmation
+  const router = useRouter();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+  const [deleting, setDeleting] = useState(false);
 
   const aspect = project?.aspect_ratio ?? "9:16";
   const isDesktop = useIsDesktop();
@@ -452,6 +461,20 @@ export default function Workspace({ projectId }: { projectId: string }) {
     }
   }
 
+  async function doDelete() {
+    if (!project || confirmText.trim() !== project.title.trim() || deleting) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await deleteProject(projectId);
+      window.dispatchEvent(new Event(PROJECTS_CHANGED));
+      router.push("/");
+    } catch (e) {
+      setError(errMsg(e));
+      setDeleting(false);
+    }
+  }
+
   // ── derived ──────────────────────────────────────────────────────────────
 
   const planned = shots.length > 0;
@@ -549,6 +572,46 @@ export default function Workspace({ projectId }: { projectId: string }) {
               {renderedShots}/{shots.length} shots
             </Pill>
           )}
+          {/* project actions */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setMenuOpen((o) => !o)}
+              aria-label="Project actions"
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              className="inline-flex size-9 items-center justify-center rounded-[var(--radius)] text-faint transition-colors hover:bg-panel-hi hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              ⋯
+            </button>
+            {menuOpen && (
+              <>
+                <button
+                  type="button"
+                  aria-hidden
+                  tabIndex={-1}
+                  onClick={() => setMenuOpen(false)}
+                  className="fixed inset-0 z-40 cursor-default"
+                />
+                <div
+                  role="menu"
+                  className="absolute right-0 z-50 mt-1 w-44 overflow-hidden rounded-[var(--radius)] border border-border bg-panel shadow-2xl"
+                >
+                  <button
+                    role="menuitem"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setConfirmText("");
+                      setConfirmDelete(true);
+                    }}
+                    className="block w-full px-3 py-2 text-left text-sm text-fail transition-colors hover:bg-fail/10 focus-visible:outline-none focus-visible:bg-fail/10"
+                  >
+                    Delete project
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -709,6 +772,55 @@ export default function Workspace({ projectId }: { projectId: string }) {
         ) : (
           inspectorEl
         ))}
+
+      {confirmDelete && project && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setConfirmDelete(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md rounded-[var(--radius)] border border-fail/30 bg-panel p-6 shadow-2xl"
+          >
+            <h2 className="title text-xl text-fg">Delete this project?</h2>
+            <p className="mt-2 text-sm leading-relaxed text-muted">
+              This permanently deletes <span className="text-fg">“{project.title}”</span> — its
+              scenes, shots, generated images and videos, and any cut. This can’t be undone.
+            </p>
+            <label className="mt-4 block">
+              <span className="text-xs text-faint">
+                Type <span className="font-mono text-fg">{project.title}</span> to confirm
+              </span>
+              <input
+                autoFocus
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setConfirmDelete(false);
+                  if (e.key === "Enter") doDelete();
+                }}
+                placeholder={project.title}
+                className="mt-1 w-full rounded-[var(--radius)] border border-border bg-bg-soft px-3 py-2 text-fg outline-none placeholder:text-faint focus:border-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              />
+            </label>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setConfirmDelete(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                loading={deleting}
+                disabled={confirmText.trim() !== project.title.trim()}
+                onClick={doDelete}
+              >
+                Delete project
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
