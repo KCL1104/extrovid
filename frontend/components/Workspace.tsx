@@ -549,8 +549,13 @@ export default function Workspace({ projectId }: { projectId: string }) {
         {announce}
       </div>
 
-      {/* header */}
-      <div className="rise flex flex-wrap items-center justify-between gap-4">
+      {/* header — `.rise` leaves a persistent transform (stacking context at z-auto), which
+          would trap the ⋯ dropdown BELOW the sticky stage-tabs (z-30); lift it while open */}
+      <div
+        className={`rise flex flex-wrap items-center justify-between gap-4 ${
+          menuOpen ? "relative z-40" : ""
+        }`}
+      >
         <div className="flex min-w-0 flex-1 items-center gap-4">
           <Link
             href="/"
