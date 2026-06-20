@@ -54,10 +54,14 @@ export type Project = {
   status: string;
   aspect_ratio: string;
   target_duration_sec: number;
+  format?: string | null; // content intent (length selector)
   budget_usd?: number | null; // review-gate spend ceiling (P3)
   created_at: string;
   stats?: ProjectStats | null;
 };
+
+// content intent / length preset
+export type VideoFormat = "social" | "ad" | "explainer" | "youtube" | "documentary";
 
 export type SceneBeat = { order: number; description: string; narration?: string | null; dialogue?: string | null };
 export type Scene = {
@@ -338,6 +342,7 @@ export type BriefInput = {
   aspect_ratio: string;
   style?: string | null;
   audience?: string | null;
+  format?: string | null;
 };
 export type ScriptDraft = {
   logline: string;
@@ -388,9 +393,13 @@ export const unpublishCut = (id: string, seqId: string) =>
 // ── projects ──
 export const listProjects = () => api<Project[]>("/projects");
 export const createProject = (
-  body: { title?: string; aspect_ratio?: string; target_duration_sec?: number } = {},
+  body: { title?: string; aspect_ratio?: string; target_duration_sec?: number; format?: string } = {},
 ) => api<Project>("/projects", { method: "POST", body: JSON.stringify(body) });
 export const getProject = (id: string) => api<Project>(`/projects/${id}`);
+export const updateProject = (
+  id: string,
+  body: { title?: string; aspect_ratio?: string; target_duration_sec?: number; format?: string },
+) => api<Project>(`/projects/${id}`, { method: "PATCH", body: JSON.stringify(body) });
 export const deleteProject = (id: string) => api<void>(`/projects/${id}`, { method: "DELETE" });
 
 export const runPipeline = (id: string, raw_prompt: string, clarifications: ClarifyAnswer[] = []) =>
@@ -407,10 +416,20 @@ export const clarifyBrief = (id: string, raw_prompt: string) =>
   });
 
 // per-stage planning (staged run console shows live progress per stage)
-export const runBrief = (id: string, raw_prompt: string, clarifications: ClarifyAnswer[] = []) =>
+export const runBrief = (
+  id: string,
+  raw_prompt: string,
+  clarifications: ClarifyAnswer[] = [],
+  opts?: { target_duration_sec?: number; format?: string | null },
+) =>
   api<BriefInput>(`/projects/${id}/brief`, {
     method: "POST",
-    body: JSON.stringify(clarifications.length ? { raw_prompt, clarifications } : { raw_prompt }),
+    body: JSON.stringify({
+      raw_prompt,
+      ...(clarifications.length ? { clarifications } : {}),
+      ...(opts?.target_duration_sec != null ? { target_duration_sec: opts.target_duration_sec } : {}),
+      ...(opts?.format ? { format: opts.format } : {}),
+    }),
   });
 export const runScript = (id: string, brief: BriefInput) =>
   api<ScriptDraft>(`/projects/${id}/script`, { method: "POST", body: JSON.stringify(brief) });

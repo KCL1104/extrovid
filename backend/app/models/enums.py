@@ -51,6 +51,19 @@ class AspectRatio(StrEnum):
     R4_5 = "4:5"
 
 
+class VideoFormat(StrEnum):
+    """Content intent/format — a SECOND axis alongside duration (P3 length selector).
+
+    Tier (derived from duration) controls pacing; format selects the narrative STRUCTURE
+    template within that tier, so a 4-min explainer and a 4-min documentary differ."""
+
+    SOCIAL = "social"
+    AD = "ad"
+    EXPLAINER = "explainer"
+    YOUTUBE = "youtube"
+    DOCUMENTARY = "documentary"
+
+
 class ConceptSetType(StrEnum):
     MOODBOARD = "moodboard"
     STYLE = "style"

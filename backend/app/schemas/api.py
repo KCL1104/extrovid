@@ -13,6 +13,7 @@ from app.models.enums import (
     ProjectStatus,
     PromotedAs,
     ShotTransition,
+    VideoFormat,
 )
 from app.schemas.pipeline import (
     CameraSpec,
@@ -30,6 +31,7 @@ class ProjectCreate(BaseModel):
     target_duration_sec: int = Field(
         default=20, ge=MIN_TARGET_DURATION_SEC, le=MAX_TARGET_DURATION_SEC
     )
+    format: VideoFormat | None = None  # content intent (length selector)
 
 
 # --- auth ---
@@ -90,6 +92,7 @@ class ProjectUpdate(BaseModel):
     target_duration_sec: int | None = Field(
         default=None, ge=MIN_TARGET_DURATION_SEC, le=MAX_TARGET_DURATION_SEC
     )
+    format: VideoFormat | None = None
 
 
 class ProjectStats(BaseModel):
@@ -111,6 +114,7 @@ class ProjectRead(BaseModel):
     status: str
     aspect_ratio: str
     target_duration_sec: int
+    format: str | None = None
     created_at: datetime
     stats: ProjectStats | None = None
 
@@ -145,6 +149,11 @@ class ClarifyAnswer(BaseModel):
 class RunRequest(BaseModel):
     raw_prompt: str = Field(..., min_length=1)
     clarifications: list[ClarifyAnswer] = Field(default_factory=list)
+    # explicit length/format selection (authoritative over brief-text inference)
+    target_duration_sec: int | None = Field(
+        default=None, ge=MIN_TARGET_DURATION_SEC, le=MAX_TARGET_DURATION_SEC
+    )
+    format: VideoFormat | None = None
 
 
 class VisualPlansResponse(BaseModel):

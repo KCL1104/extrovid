@@ -32,6 +32,7 @@ async def create_project(session: AsyncSession, owner_id: str, data: ProjectCrea
         owner_id=owner_id,
         aspect_ratio=data.aspect_ratio.value,
         target_duration_sec=data.target_duration_sec,
+        format=data.format.value if data.format else None,
     )
     session.add(project)
     await session.commit()
@@ -104,6 +105,8 @@ async def update_project(session: AsyncSession, project: Project, data: ProjectU
         project.aspect_ratio = data.aspect_ratio.value
     if data.target_duration_sec is not None:
         project.target_duration_sec = data.target_duration_sec
+    if data.format is not None:
+        project.format = data.format.value
     session.add(project)
     await session.commit()
     await session.refresh(project)

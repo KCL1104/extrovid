@@ -16,10 +16,21 @@ from app.agents.clarify_agent import clarify_agent
 from app.agents.outline_agent import outline_agent
 from app.agents.script_agent import script_agent
 from app.agents.storyboard_agent import scene_storyboard_agent
-from app.agents.tiers import Tier, scene_shot_tier_block, script_tier_block, tier_for
+from app.agents.tiers import (
+    Tier,
+    format_block,
+    scene_shot_tier_block,
+    script_tier_block,
+    tier_for,
+)
 from app.agents.visual_dev_agent import visual_dev_agent
 from app.core.agent_run import run_agent
-from app.models.enums import MAX_SCENE_DURATION_SEC
+from app.models.enums import (
+    MAX_SCENE_DURATION_SEC,
+    MAX_TARGET_DURATION_SEC,
+    MIN_TARGET_DURATION_SEC,
+    VideoFormat,
+)
 from app.schemas.api import ClarifyAnswer, ClarifyResult
 from app.schemas.pipeline import (
     ActDraft,
@@ -93,6 +104,7 @@ def build_script_prompt(
         f"Audience: {brief.audience}\n"
         f"Target duration: {brief.target_duration_sec}s\n"
         + script_tier_block(tier_for(brief.target_duration_sec), brief.target_duration_sec)
+        + format_block(brief.format.value if brief.format else None)
         + act_block(acts)
         + creative_direction_block(clarifications)
     )
@@ -281,10 +293,21 @@ async def run_clarify(raw_prompt: str) -> ClarifyResult:
 
 
 async def run_brief(
-    raw_prompt: str, clarifications: list[ClarifyAnswer] | None = None
+    raw_prompt: str,
+    clarifications: list[ClarifyAnswer] | None = None,
+    target_duration_sec: int | None = None,
+    format: VideoFormat | None = None,
 ) -> BriefInput:
     result = await run_agent(brief_agent, fold_clarifications(raw_prompt, clarifications))
-    return result.output
+    brief = result.output
+    # an explicit length/format selection is AUTHORITATIVE over the agent's text inference
+    if target_duration_sec is not None:
+        brief.target_duration_sec = max(
+            MIN_TARGET_DURATION_SEC, min(MAX_TARGET_DURATION_SEC, target_duration_sec)
+        )
+    if format is not None:
+        brief.format = format
+    return brief
 
 
 async def run_outline(
@@ -407,9 +430,12 @@ async def run_storyboard(
 
 
 async def run_pipeline(
-    brief_in: BriefInput, clarifications: list[ClarifyAnswer] | None = None
+    brief_in: BriefInput,
+    clarifications: list[ClarifyAnswer] | None = None,
+    target_duration_sec: int | None = None,
+    format: VideoFormat | None = None,
 ) -> PipelineResult:
-    filled = await run_brief(brief_in.raw_prompt, clarifications)
+    filled = await run_brief(brief_in.raw_prompt, clarifications, target_duration_sec, format)
     # LONG tier: design the chapter outline first, then write the script to realize it
     acts: list[ActDraft] = []
     if tier_for(filled.target_duration_sec) is Tier.LONG:

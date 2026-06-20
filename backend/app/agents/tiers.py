@@ -81,6 +81,43 @@ def script_tier_block(tier: Tier, target_duration_sec: int | float) -> str:
     )
 
 
+# Format = the narrative STRUCTURE template, composed ON TOP of the tier's pacing spine.
+# Tier controls length/pacing (ASL, scene count, hook); format controls the beat structure —
+# so a 4-min explainer and a 4-min documentary derive to the same tier but read differently.
+FORMAT_STRUCTURE: dict[str, str] = {
+    "social": (
+        "one idea only — a single stop-scroll hook in the first second, fast cuts, no "
+        "exposition; end on the payoff or a loop."
+    ),
+    "ad": (
+        "condensed hook -> value/demo -> explicit call-to-action; show the brand/product "
+        "early and again at the close."
+    ),
+    "explainer": (
+        "linear and chronological: Problem (5-10s) -> Solution (5-10s) -> How it works / "
+        "key benefits (the bulk) -> a clear CTA (~10s). Budget narration near 2.5 words/sec."
+    ),
+    "youtube": (
+        "a chaptered multi-scene piece with retention pacing — a strong cold open, signposted "
+        "sections, recap/payoff beats, and varied energy so attention never flattens."
+    ),
+    "documentary": (
+        "a non-linear, character/subject-driven arc; weave interview-style moments with B-roll "
+        "and let the act/chapter structure carry the through-line."
+    ),
+}
+
+
+def format_block(format: str | None) -> str:
+    """Format-specific structure guidance appended to the scriptwriter prompt ("" when unset)."""
+    if not format:
+        return ""
+    para = FORMAT_STRUCTURE.get(format)
+    if not para:
+        return ""
+    return f"\nFORMAT ({format}): structure it as {para}"
+
+
 def scene_shot_tier_block(
     tier: Tier, budget_sec: float, scene_order: int | None = None
 ) -> str:

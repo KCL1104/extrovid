@@ -380,6 +380,8 @@ async def persist_pipeline(
     project.status = ProjectStatus.STORYBOARDED.value
     project.aspect_ratio = result.brief.aspect_ratio.value
     project.target_duration_sec = result.brief.target_duration_sec
+    if result.brief.format:
+        project.format = result.brief.format.value
     session.add(project)
     await session.commit()
 

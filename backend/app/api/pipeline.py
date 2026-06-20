@@ -48,15 +48,20 @@ async def clarify_brief(project_id: str, body: RunRequest):
 async def generate_brief(
     project_id: str, body: RunRequest, session: AsyncSession = Depends(get_session)
 ):
-    brief = await orchestrator.run_brief(body.raw_prompt, body.clarifications)
+    # the explicit length/format selection (if any) is authoritative over text inference
+    brief = await orchestrator.run_brief(
+        body.raw_prompt, body.clarifications, body.target_duration_sec, body.format
+    )
     await planning_service.replace_brief(session, project_id, brief, body.clarifications)
     # a changed brief invalidates everything planned against the old one
     await revise_service.mark_project_stale(session, project_id)
-    # the parsed brief drives the project's framing (mirrors /run's persist_pipeline)
+    # the (now authoritative) brief drives the project's framing (mirrors /run's persist_pipeline)
     project = await session.get(Project, project_id)
     if project:
         project.aspect_ratio = brief.aspect_ratio.value
         project.target_duration_sec = brief.target_duration_sec
+        if brief.format:
+            project.format = brief.format.value
         session.add(project)
     await session.commit()
     return brief
@@ -253,7 +258,10 @@ async def run_full_pipeline(
     session: AsyncSession = Depends(get_session),
 ):
     result = await orchestrator.run_pipeline(
-        BriefInput(raw_prompt=body.raw_prompt), clarifications=body.clarifications
+        BriefInput(raw_prompt=body.raw_prompt),
+        clarifications=body.clarifications,
+        target_duration_sec=body.target_duration_sec,
+        format=body.format,
     )
     await planning_service.persist_pipeline(session, project, result, body.clarifications)
     return result

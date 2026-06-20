@@ -4,14 +4,17 @@ import pytest
 
 from app.agents.tiers import (
     Tier,
+    format_block,
     scene_shot_tier_block,
     script_tier_block,
     tier_for,
 )
+from app.models.enums import VideoFormat
 from app.pipeline.orchestrator import (
     build_continuity_bible,
     build_scene_storyboard_prompt,
     build_script_prompt,
+    run_brief,
     run_pipeline,
 )
 from app.schemas.pipeline import BriefInput, SceneBeat, SceneDraft
@@ -84,6 +87,60 @@ def test_scene_prompt_tier_is_opt_in_and_backcompat():
     # no tier -> no pacing block (preserves the legacy 3-arg call sites)
     assert "PACING" not in build_scene_storyboard_prompt(_scene(), None, 10)
     assert "PACING" in build_scene_storyboard_prompt(_scene(), None, 10, tier=Tier.MEDIUM)
+
+
+# --- length/format selector (explicit choice authoritative + format structure) ---
+
+
+def test_format_block_is_format_specific():
+    assert "Problem" in format_block("explainer")
+    assert "call-to-action" in format_block("ad")
+    assert "documentary" in format_block("documentary").lower()
+    assert format_block(None) == ""
+    assert format_block("bogus") == ""
+
+
+async def test_explicit_duration_and_format_override_brief_text():
+    # brief text says 600s, but the explicit selection (30s / social) must win
+    b = await run_brief("a 600s documentary", None, target_duration_sec=30, format=VideoFormat.SOCIAL)
+    assert b.target_duration_sec == 30
+    assert b.format is VideoFormat.SOCIAL
+
+
+def test_script_prompt_carries_format_structure():
+    p = build_script_prompt(
+        BriefInput(raw_prompt="x", target_duration_sec=75, format=VideoFormat.EXPLAINER)
+    )
+    assert "FORMAT (explainer)" in p
+    assert "Problem" in p  # the explainer structure template
+    # no format -> no format block
+    assert "FORMAT (" not in build_script_prompt(BriefInput(raw_prompt="x", target_duration_sec=20))
+
+
+async def test_run_respects_explicit_format_and_duration(client):
+    pid = (await client.post("/api/projects", json={"title": "F", "format": "documentary"})).json()["id"]
+    # explicit 30s + social via /run overrides the brief text "600s film"
+    r = await client.post(
+        f"/api/projects/{pid}/run",
+        json={"raw_prompt": "a 600s film", "target_duration_sec": 30, "format": "social"},
+    )
+    assert r.status_code == 200
+    assert r.json()["brief"]["target_duration_sec"] == 30
+    proj = (await client.get(f"/api/projects/{pid}")).json()
+    assert proj["target_duration_sec"] == 30 and proj["format"] == "social"
+
+
+async def test_staged_brief_respects_explicit_selection(client):
+    pid = (await client.post("/api/projects", json={"title": "B"})).json()["id"]
+    brief = (
+        await client.post(
+            f"/api/projects/{pid}/brief",
+            json={"raw_prompt": "a 600s film", "target_duration_sec": 45, "format": "ad"},
+        )
+    ).json()
+    assert brief["target_duration_sec"] == 45 and brief["format"] == "ad"
+    proj = (await client.get(f"/api/projects/{pid}")).json()
+    assert proj["target_duration_sec"] == 45 and proj["format"] == "ad"
 
 
 def test_continuity_bible_injects_the_whole_arc():

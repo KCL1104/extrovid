@@ -32,6 +32,18 @@ const EXAMPLE_BRIEFS = [
   "A 15s moody product reveal for a minimalist watch — slow push-in on the dial.",
 ];
 
+// content-intent presets: each picks a tier (via its default seconds) + a structure template.
+// The chosen seconds is authoritative — it overrides any duration guessed from the brief text.
+const FORMAT_PRESETS = [
+  { key: "social", label: "Social clip", seconds: 20, range: "15–30s", note: "one idea · hook" },
+  { key: "ad", label: "Ad / Promo", seconds: 30, range: "15–30s", note: "hook → CTA" },
+  { key: "explainer", label: "Explainer", seconds: 75, range: "60–90s", note: "problem → CTA" },
+  { key: "youtube", label: "YouTube", seconds: 300, range: "3–8 min", note: "chaptered" },
+  { key: "documentary", label: "Documentary", seconds: 600, range: "8–20 min", note: "act arc" },
+] as const;
+
+const tierOf = (s: number) => (s <= 90 ? "short" : s <= 300 ? "medium" : "long");
+
 type StageStatus = "idle" | "running" | "done" | "error";
 type Stage = { id: string; label: string; icon: LucideIcon; status: StageStatus; detail?: string };
 
@@ -58,6 +70,14 @@ export default function PlanPanel({
   onRefresh: () => Promise<void> | void;
 }) {
   const [brief, setBrief] = useState("");
+  // length/format selector — remembered across sessions (per-project authority at plan time)
+  const [format, setFormat] = useState<string>(
+    () => (typeof window !== "undefined" && localStorage.getItem("extrovid:format")) || "social",
+  );
+  const [dur, setDur] = useState<string>(
+    () => (typeof window !== "undefined" && localStorage.getItem("extrovid:dur")) || "20",
+  );
+  const seconds = Math.max(5, Math.min(1200, Number.parseInt(dur, 10) || 20));
   const [stages, setStages] = useState<Stage[]>(FRESH_STAGES);
   const [running, setRunning] = useState(false);
   const [confirmReplace, setConfirmReplace] = useState(false);
@@ -127,9 +147,16 @@ export default function PlanPanel({
     setStages(FRESH_STAGES.map((s) => ({ ...s })));
     let current = "brief";
     try {
+      if (typeof window !== "undefined") {
+        localStorage.setItem("extrovid:format", format);
+        localStorage.setItem("extrovid:dur", String(seconds));
+      }
       mark("brief", "running");
-      const b = await runBrief(projectId, brief.trim(), clarifications);
-      mark("brief", "done", `${b.target_duration_sec}s · ${b.aspect_ratio} · ${b.platform}`);
+      const b = await runBrief(projectId, brief.trim(), clarifications, {
+        target_duration_sec: seconds,
+        format,
+      });
+      mark("brief", "done", `${b.target_duration_sec}s · ${b.format ?? "—"} · ${b.aspect_ratio}`);
 
       current = "script";
       mark("script", "running");
@@ -231,6 +258,51 @@ export default function PlanPanel({
     <div className="space-y-6">
       {/* brief */}
       <Panel className="rise p-5">
+        {/* format & length — sets the tier + structure; authoritative over the brief text */}
+        <div className="mb-4">
+          <div className="flex items-center justify-between">
+            <Eyebrow className="!mb-0">Format &amp; length</Eyebrow>
+            <span className="font-mono text-[0.65rem] text-faint">
+              ~{seconds}s · {tierOf(seconds)}
+            </span>
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-5">
+            {FORMAT_PRESETS.map((p) => (
+              <button
+                key={p.key}
+                type="button"
+                onClick={() => {
+                  setFormat(p.key);
+                  setDur(String(p.seconds));
+                }}
+                aria-pressed={format === p.key}
+                className={cn(
+                  "rounded-[var(--radius)] border px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                  format === p.key
+                    ? "border-accent bg-accent/10"
+                    : "border-border hover:border-accent/40",
+                )}
+              >
+                <span className="block font-mono text-xs text-fg">{p.label}</span>
+                <span className="block font-mono text-[0.6rem] text-faint">{p.range}</span>
+                <span className="mt-0.5 block text-[0.65rem] text-muted">{p.note}</span>
+              </button>
+            ))}
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <label className="font-mono text-[0.65rem] text-faint" htmlFor="dur-adjust">
+              Adjust seconds
+            </label>
+            <input
+              id="dur-adjust"
+              inputMode="numeric"
+              value={dur}
+              onChange={(e) => setDur(e.target.value.replace(/[^0-9]/g, ""))}
+              className="w-20 rounded-[var(--radius)] border border-border bg-bg-soft px-2 py-1 text-right font-mono text-xs text-fg outline-none focus:border-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            />
+            <span className="font-mono text-[0.6rem] text-faint">(5–1200) — refines the tier</span>
+          </div>
+        </div>
         <Eyebrow>{planned ? "Re-brief" : "Brief"}</Eyebrow>
         <label className="sr-only" htmlFor="brief-input">
           Creative brief

@@ -27,6 +27,7 @@ from app.models.enums import (
     MIN_TOTAL_SHOTS,
     PLANNABLE_MODELS,
     AspectRatio,
+    VideoFormat,
     ConceptSetStatus,
     ConceptSetType,
     PreferredModel,
@@ -52,6 +53,8 @@ class BriefInput(BaseModel):
     aspect_ratio: AspectRatio = AspectRatio.R9_16
     style: str | None = None
     audience: str | None = None
+    # content intent/format (length selector); drives the script's structure template
+    format: VideoFormat | None = None
 
 
 # --------------------------------------------------------------------------- #
