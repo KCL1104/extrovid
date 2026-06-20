@@ -1,8 +1,12 @@
 # Length tiers + plan review/annotate gate — implementation spec
 
-> Status: **P0 in progress** (2026-06-20). Design locked via research workflow `wf_1c125d7d`
-> (9 agents). This doc is the source of truth for the multi-length expansion and the
-> post-planning review gate. Companion memory: `extrovid-length-review-plan`.
+> Status (2026-06-20): **P0 DONE** (commit cd4848b — tier scaffolding) · **P1 backend DONE**
+> (commit 2b8b5b7 — review gate, annotations, propose-diff, migration; full suite green) ·
+> **P1 frontend NEXT** (the Plan Review surface). Design locked via research workflow
+> `wf_1c125d7d` (9 agents). Companion memory: `extrovid-length-review-plan`.
+> NOTE: the backend test suite runs against a REMOTE Railway Postgres by default
+> (`TEST_DATABASE_URL`); run locally with `TEST_DATABASE_URL="" pytest` to use fast in-memory
+> sqlite and avoid cross-run deadlocks.
 
 ## 0. Thesis — two asks, one product story
 
