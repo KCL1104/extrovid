@@ -175,8 +175,9 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
     try {
       const updated = await updatePreferences(v || null);
       setUser(updated);
-      // mirror to the per-project picker's remembered default so it takes effect immediately
-      if (typeof window !== "undefined" && v) localStorage.setItem("extrovid:format", v);
+      // mirror to the per-project picker's remembered duration so it takes effect immediately
+      const sec: Record<string, number> = { short: 20, medium: 180, long: 600 };
+      if (typeof window !== "undefined" && sec[v]) localStorage.setItem("extrovid:dur", String(sec[v]));
     } catch {
       /* advisory pref — ignore transient failures */
     } finally {
@@ -342,28 +343,26 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                     </SettingRow>
                     {since && <SettingRow label="member since">{since}</SettingRow>}
                     {!user?.is_admin && (
-                      <SettingRow label="default format">
+                      <SettingRow label="default length">
                         <select
                           value={defFmt}
                           onChange={(e) => saveDefaultFormat(e.target.value)}
                           disabled={fmtBusy}
-                          aria-label="Default format for new projects"
+                          aria-label="Default length for new projects"
                           className="rounded-[var(--radius)] border border-border bg-bg-soft px-2 py-1 font-mono text-xs text-fg outline-none focus:border-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
                         >
                           <option value="">Ask each time</option>
-                          <option value="social">Social clip</option>
-                          <option value="ad">Ad / Promo</option>
-                          <option value="explainer">Explainer</option>
-                          <option value="youtube">YouTube</option>
-                          <option value="documentary">Documentary</option>
+                          <option value="short">Short (~20s)</option>
+                          <option value="medium">Medium (~3 min)</option>
+                          <option value="long">Long (~10 min)</option>
                         </select>
                       </SettingRow>
                     )}
                   </div>
                   {!user?.is_admin && (
                     <p className="mt-2 px-1 text-xs leading-relaxed text-faint">
-                      Pre-fills the length/format on new projects — you can still change it per
-                      video at the Plan step.
+                      Pre-fills the length on new projects — you can still change it per video at
+                      the Plan step.
                     </p>
                   )}
                 </>

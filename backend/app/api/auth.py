@@ -113,7 +113,7 @@ async def update_me(
     """Update account preferences (currently the advisory default format for new projects)."""
     if auth.user is None:
         raise HTTPException(status_code=400, detail="the admin account is managed via env, not here")
-    auth.user.default_format = body.default_format.value if body.default_format else None
+    auth.user.default_format = body.default_format  # stores the default length tier
     session.add(auth.user)
     await session.commit()
     await session.refresh(auth.user)

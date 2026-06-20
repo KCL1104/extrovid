@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.enums import (
     MAX_TARGET_DURATION_SEC,
@@ -77,9 +77,20 @@ class UserRead(BaseModel):
 
 
 class UpdatePreferencesRequest(BaseModel):
-    """Account preferences (advisory; never overrides a per-project choice)."""
+    """Account preferences (advisory; never overrides a per-project choice).
 
-    default_format: VideoFormat | None = None
+    NOTE: ``default_format`` (legacy column name) now stores the default LENGTH tier —
+    'short' | 'medium' | 'long' (or None = ask each time). The format axis was dropped from
+    the UI in favour of an explicit length picker."""
+
+    default_format: str | None = None
+
+    @field_validator("default_format")
+    @classmethod
+    def _valid_tier(cls, v: str | None) -> str | None:
+        if v is not None and v not in {"short", "medium", "long"}:
+            raise ValueError("default_format must be one of: short, medium, long")
+        return v
 
 
 class ChangePasswordRequest(BaseModel):

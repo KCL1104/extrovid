@@ -212,7 +212,13 @@ export function Tabs({
     if (next) onSelect(next.id);
   };
   return (
-    <div role="tablist" aria-label="Workspace sections" className="flex gap-1 overflow-x-auto">
+    <div
+      role="tablist"
+      aria-label="Workspace sections"
+      // pb-px contains the active-tab underline (absolute -bottom-px); without it overflow-x-auto
+      // makes overflow-y compute to `auto` and the 1px overflow turns the nav vertically scrollable
+      className="flex gap-1 overflow-x-auto pb-px"
+    >
       {tabs.map((t) => {
         const on = t.id === active;
         return (
