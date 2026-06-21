@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Request
@@ -14,6 +15,8 @@ from app.core.auth import CapExceeded, current_auth
 from app.core.config import get_settings
 from app.core.db import init_db
 from app.core.logging import configure_logging
+
+log = logging.getLogger("extrovid.reconciler")
 
 
 async def _reconciler_loop() -> None:
@@ -30,7 +33,9 @@ async def _reconciler_loop() -> None:
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001 - loop must survive transient errors
-            pass
+            # Survive transient errors, but surface them — a silently-stuck reconciler
+            # leaves RUNNING video jobs un-ingested with zero log evidence.
+            log.warning("reconciler iteration failed; continuing", exc_info=True)
 
 
 @asynccontextmanager
