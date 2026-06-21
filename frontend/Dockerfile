@@ -4,6 +4,10 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
+# NEXT_PUBLIC_* is inlined into the bundle at build time — supply the backend URL HERE so the
+# client points at the right API. CI passes --build-arg NEXT_PUBLIC_API_BASE=https://<domain>/api.
+ARG NEXT_PUBLIC_API_BASE
+ENV NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE}
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 

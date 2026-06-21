@@ -1,0 +1,59 @@
+# extrovid — single-VM production stack for Alibaba Cloud ECS.
+# Images are BUILT ON THE BOX from synced source (no registry needed). Caddy terminates
+# HTTP/HTTPS and reverse-proxies, streaming SSE without buffering.
+#
+# ponytail: ONE backend replica on purpose — the in-process video reconciler has no leader
+# election, so a second instance would double-poll every RUNNING job. Do NOT scale `backend`.
+#
+# Run from this dir on the box:  docker compose up -d --build
+services:
+  backend:
+    build:
+      context: ../backend
+    env_file: .env
+    environment:
+      PORT: "8000"
+    expose:
+      - "8000"
+    restart: always
+    # single instance — required by the reconciler (intentionally no replicas/deploy block)
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health',timeout=3).status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+  frontend:
+    build:
+      context: ../frontend
+      args:
+        # NEXT_PUBLIC_API_BASE is inlined into the bundle at build time.
+        NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE}
+    expose:
+      - "3000"
+    restart: always
+
+  caddy:
+    image: caddy:2
+    depends_on:
+      backend:
+        condition: service_healthy   # don't proxy /api until alembic+uvicorn are up (avoids boot 502s)
+      frontend:
+        condition: service_started
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # ":80" = plain HTTP (no domain yet). Set to a hostname (e.g. app.example.com) for auto-TLS.
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: always
+
+volumes:
+  caddy_data:
+  caddy_config:

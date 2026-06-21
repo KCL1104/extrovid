@@ -59,6 +59,12 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     settings = get_settings()
+    # Fail fast rather than boot a production server with the publicly-known dev defaults.
+    if settings.app_env != "local":
+        if settings.session_secret == "dev-insecure-change-me":
+            raise RuntimeError("SESSION_SECRET must be set to a strong value outside local dev.")
+        if settings.api_token and settings.api_token.startswith("CHANGE_ME"):
+            raise RuntimeError("API_TOKEN is still the placeholder — set a real token or unset it.")
     # SessionMiddleware added first → CORS (added last) stays outermost. The session cookie
     # only carries transient OAuth state during the Google redirect; the API itself is
     # Bearer-token based, so CORS needs no credentials.

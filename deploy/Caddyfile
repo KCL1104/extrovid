@@ -1,0 +1,16 @@
+# SITE_ADDRESS = ":80" → plain HTTP (no domain). A hostname → Caddy auto-provisions Let's Encrypt
+# TLS (to add an ACME email then, put `tls you@example.com` inside the site block).
+# One site serves both: /api (+ health/docs/oauth) → FastAPI, everything else → Next.js.
+{$SITE_ADDRESS} {
+	@backend path /api/* /health /docs /openapi.json
+	handle @backend {
+		reverse_proxy backend:8000 {
+			# Stream Server-Sent Events immediately — never buffer text/event-stream.
+			flush_interval -1
+		}
+	}
+
+	handle {
+		reverse_proxy frontend:3000
+	}
+}

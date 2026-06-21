@@ -106,6 +106,9 @@ class Settings(BaseSettings):
     s3_region: str = "auto"
     s3_access_key_id: str | None = None
     s3_secret_access_key: str | None = None
+    # boto3 signature version for the S3 client. Leave unset for AWS/Tigris (SigV4 default);
+    # set to "s3" for Alibaba OSS, which rejects SigV4-with-chunked-encoding on uploads.
+    s3_signature_version: str | None = None
     presign_ttl_sec: int = 3600
 
     # --- Database (PostgreSQL target; sqlite fallback only when nothing is configured) ---

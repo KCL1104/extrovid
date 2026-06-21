@@ -1,0 +1,53 @@
+name: Deploy to Alibaba Cloud (ECS)
+
+# Syncs the repo to the ECS box over SSH and rebuilds the Docker stack there.
+# No registry needed — images build on the box from source.
+# Required GitHub secrets:
+#   SSH_HOST   ECS public IP / EIP
+#   SSH_USER   e.g. root
+#   SSH_KEY    private key (PEM/OpenSSH) authorized on the box
+#   SSH_PORT   (optional) defaults to 22
+# The box keeps its own deploy/.env (gitignored, never synced).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "deploy/**"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  # false: never cancel an in-flight deploy mid 'docker compose up' (single box, no rollback).
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -p "${{ secrets.SSH_PORT || 22 }}" -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Sync source to ECS
+        run: |
+          rsync -az --delete \
+            --exclude '.git' --exclude 'node_modules' --exclude '.next' \
+            --exclude 'deploy/.env' --exclude '__pycache__' --exclude '.venv' \
+            --exclude '.pytest_cache' --exclude '.ruff_cache' \
+            -e "ssh -p ${{ secrets.SSH_PORT || 22 }} -i ~/.ssh/id_ed25519" \
+            ./ "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/opt/extrovid/app/"
+
+      - name: Build & restart on ECS
+        run: |
+          ssh -p "${{ secrets.SSH_PORT || 22 }}" -i ~/.ssh/id_ed25519 \
+            "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" \
+            'cd /opt/extrovid/app/deploy && docker compose up -d --build --remove-orphans && docker image prune -f'
