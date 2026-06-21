@@ -45,6 +45,9 @@ class Shot(SQLModel, table=True):
     last_frame_desc: str | None = None
     motion_desc: str | None = None
     variation_type: str = Field(default="small")  # small | medium | large
+    # render mode: "video" = full i2v/t2v generation; "still" = freeze-frame clip from the
+    # planned keyframe image (low-motion beats — establishing/text-card/held — at image cost)
+    render_mode: str = Field(default="video")
     # the generated keyframe image (a LookFrame) used as this shot's i2v/r2v seed
     keyframe_frame_id: str | None = Field(default=None, foreign_key="lookframe.id")
     # the generated CLOSING keyframe (a LookFrame) — image-level continuity seed for the
@@ -56,3 +59,12 @@ class Shot(SQLModel, table=True):
     approved: bool = Field(default=False)
     locked: bool = Field(default=False)
     approved_at: datetime | None = Field(default=None)
+
+    @property
+    def suggest_still(self) -> bool:
+        """Advisory hint shown at the review gate: a low-motion shot (no described motion)
+        is a cheap candidate for a still render. The user confirms; nothing is forced."""
+        m = (self.motion_desc or "").strip().lower()
+        return self.render_mode == "video" and m in {
+            "", "none", "static", "still", "locked", "no motion", "minimal",
+        }  # fmt: skip

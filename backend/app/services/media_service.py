@@ -143,6 +143,34 @@ def extract_poster(data: bytes, *, width: int = 480) -> bytes | None:
     )
 
 
+def still_to_clip(image: bytes, duration_sec: float, *, fps: int = 24) -> bytes | None:
+    """A still image looped into an N-second H.264 clip — the render for a low-motion
+    'still' shot. The image already cost a keyframe generation; this is local compute only,
+    and the result assembles into the cut like any other take."""
+    dur = max(0.5, round(float(duration_sec), 2))
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "still")  # ffmpeg sniffs the format from content
+            dst = os.path.join(d, "out.mp4")
+            with open(src, "wb") as fh:
+                fh.write(image)
+            subprocess.run(
+                [
+                    _ffmpeg(), "-y", "-loop", "1", "-i", src, "-t", f"{dur}", "-r", str(fps),
+                    # yuv420p needs even dimensions; pad odd stills up by a pixel
+                    "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2,format=yuv420p",
+                    "-c:v", "libx264", "-preset", "veryfast", "-movflags", "+faststart", dst,
+                ],  # fmt: skip
+                check=True,
+                capture_output=True,
+                timeout=_FRAME_TIMEOUT,
+            )
+            with open(dst, "rb") as fh:
+                return fh.read()
+    except Exception:  # noqa: BLE001 - best-effort: undecodable/mock input falls back upstream
+        return None
+
+
 def extract_last_frame(data: bytes) -> bytes | None:
     """The final frame at full resolution — the continuation seed for the next shot."""
 

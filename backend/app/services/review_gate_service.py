@@ -213,12 +213,18 @@ async def projected_cost(session: AsyncSession, project_id: str) -> dict:
     shots = (
         (await session.execute(select(Shot).where(Shot.project_id == project_id))).scalars().all()
     )
-    video = sum(pricing.video_cost_usd(s.duration_sec, settings.video_resolution) for s in shots)
+    # stills render from their keyframe image (no video spend); they still need that image
+    video = sum(
+        pricing.video_cost_usd(s.duration_sec, settings.video_resolution)
+        for s in shots
+        if s.render_mode != "still"
+    )
     image = len(shots) * pricing.image_cost_usd(settings.qwen_image_model)
     tts = sum(pricing.tts_cost_usd() for s in shots if s.dialogue)
     total = video + image + tts
     return {
         "shots": len(shots),
+        "stills": sum(1 for s in shots if s.render_mode == "still"),
         "video_usd": round(video, 2),
         "image_usd": round(image, 2),
         "tts_usd": round(tts, 2),

@@ -94,6 +94,8 @@ export default function ShotInspector({
   const [charId, setCharId] = useState(shot.character_id ?? "");
   const [castSaving, setCastSaving] = useState(false);
   const [castError, setCastError] = useState<string | null>(null);
+  const [renderMode, setRenderMode] = useState(shot.render_mode ?? "video");
+  const [modeSaving, setModeSaving] = useState(false);
   const [note, setNote] = useState("");
   const [reviewing, setReviewing] = useState(false);
   const [numTakes, setNumTakes] = useState(1);
@@ -240,6 +242,21 @@ export default function ShotInspector({
       setCastError(errMsg(e));
     } finally {
       setCastSaving(false);
+    }
+  }
+
+  /** Still vs motion: a still freezes the keyframe into a clip (image cost, no video spend). */
+  async function pickRenderMode(mode: "video" | "still") {
+    if (modeSaving || mode === renderMode) return;
+    const prev = renderMode;
+    setRenderMode(mode);
+    setModeSaving(true);
+    try {
+      await onUpdate({ render_mode: mode });
+    } catch {
+      setRenderMode(prev);
+    } finally {
+      setModeSaving(false);
     }
   }
 
@@ -451,6 +468,31 @@ export default function ShotInspector({
             )}
           </div>
           <div className="mt-3 space-y-3">
+            <Field label="render" htmlFor="dir-render-mode">
+              <div id="dir-render-mode" className="flex gap-1.5">
+                {(["video", "still"] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    disabled={modeSaving}
+                    onClick={() => pickRenderMode(m)}
+                    className={cn(
+                      "flex-1 rounded-md border px-2 py-1.5 text-xs transition-colors disabled:opacity-50",
+                      renderMode === m
+                        ? "border-accent bg-accent/10 text-accent"
+                        : "border-border text-muted hover:text-fg",
+                    )}
+                  >
+                    {m === "still" ? "still (freeze)" : "video"}
+                  </button>
+                ))}
+              </div>
+            </Field>
+            {shot.suggest_still && renderMode === "video" && (
+              <p className="text-[0.65rem] text-muted">
+                Low motion — a still render would skip a video generation and cost less.
+              </p>
+            )}
             <Field label="purpose" htmlFor="dir-purpose">
               <input
                 id="dir-purpose"

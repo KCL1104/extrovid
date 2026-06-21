@@ -149,6 +149,8 @@ export type Shot = {
   variation_type?: string;
   keyframe_frame_id?: string | null; // generated keyframe image (i2v/r2v seed)
   last_keyframe_frame_id?: string | null; // planned closing keyframe (next shot's seed)
+  render_mode?: string; // "video" = full generation; "still" = freeze-frame clip
+  suggest_still?: boolean; // advisory: low-motion shot, cheap candidate for a still
   keyframe_verdict?: string | null; // keyframe gate: "pass" | "revise" | null
   keyframe_score?: number | null; // keyframe gate score 0-10
   stale?: boolean; // an upstream artifact changed after this was planned
@@ -174,6 +176,7 @@ export type ShotUpdate = {
   first_frame_desc?: string | null;
   last_frame_desc?: string | null;
   motion_desc?: string | null;
+  render_mode?: "video" | "still";
 };
 
 export type ReviewSuggestion = { kind: "edit" | "retake"; instruction: string };

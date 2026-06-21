@@ -1,6 +1,7 @@
 """API request/response models. Reuses the pipeline DTOs where possible."""
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -469,6 +470,8 @@ class ShotRead(BaseModel):
     variation_type: str = "small"
     keyframe_frame_id: str | None = None
     last_keyframe_frame_id: str | None = None  # planned closing keyframe (continuity seed)
+    render_mode: str = "video"  # "video" = full generation; "still" = freeze-frame clip
+    suggest_still: bool = False  # advisory: low-motion shot, cheap candidate for a still
     keyframe_verdict: str | None = None  # keyframe gate verdict: "pass" | "revise" | None
     keyframe_score: float | None = None  # keyframe gate score 0-10
     stale: bool = False  # an upstream artifact changed after this was planned
@@ -496,6 +499,7 @@ class ShotUpdate(BaseModel):
     last_frame_desc: str | None = None  # planned closing snapshot
     motion_desc: str | None = None  # the motion between the keyframes
     keyframe_frame_id: str | None = None  # point the shot at a different keyframe
+    render_mode: Literal["video", "still"] | None = None  # full generation vs freeze-frame clip
 
     @model_validator(mode="after")
     def _reject_explicit_nulls(self) -> "ShotUpdate":

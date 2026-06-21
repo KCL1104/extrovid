@@ -275,6 +275,66 @@ async def _ingest_video_bytes(
     session.add(version)
 
 
+async def _keyframe_image_bytes(session: AsyncSession, shot: Shot) -> bytes | None:
+    """The planned keyframe's image bytes — the source frame for a still render."""
+    if not shot.keyframe_frame_id:
+        return None
+    kf = await session.get(LookFrame, shot.keyframe_frame_id)
+    if kf is None or not kf.image_asset_id:
+        return None
+    asset = await session.get(ImageAsset, kf.image_asset_id)
+    if asset is None:
+        return None
+    return await load_bytes(asset)
+
+
+async def _render_still(
+    session: AsyncSession,
+    project_id: str,
+    shot: Shot,
+    version: ShotVersion,
+    job: GenerationJob,
+) -> tuple[ShotVersion, GenerationJob]:
+    """Freeze the shot's keyframe into a clip locally — no video provider, no video spend.
+    Falls back to a normal video render if no keyframe image is available to freeze."""
+    settings = get_settings()
+    img = await _keyframe_image_bytes(session, shot)
+    if img is None:
+        # ponytail: nothing to freeze — degrade to the real video path rather than fail.
+        # Rare (submit_shot generates a keyframe for stills first); logged if it happens.
+        log.warning("still shot %s has no keyframe image; rendering video instead", shot.id)
+        shot.render_mode = "video"
+        session.add(shot)
+        return await _activate_submission(session, project_id, shot, version, job)
+
+    if settings.use_mock_video:
+        clip = MOCK_MP4  # offline/free, mirrors the mock video path
+    else:
+        clip = await asyncio.to_thread(media_service.still_to_clip, img, shot.duration_sec)
+        if clip is None:
+            clip = MOCK_MP4  # ffmpeg unavailable/failed — still yield a take rather than error
+    version.prompt = shot.first_frame_desc or shot.purpose or shot.beat or ""
+    version.routing_note = "still — freeze-frame clip from the planned keyframe (no video gen)"
+    version.model = "ffmpeg:still"
+    await _ingest_video_bytes(
+        session, project_id, version, clip, use_mock=settings.use_mock_video,
+        source_model="ffmpeg:still",
+    )  # fmt: skip
+    job.model = "ffmpeg:still"
+    job.started_at = _now()
+    job.cost_usd = 0.0  # the keyframe image was charged separately; the freeze is local
+    job.status = JobStatus.SUCCEEDED.value
+    job.completed_at = _now()
+    session.add_all([version, job])
+    await session.commit()
+    await maybe_autoselect_batch(session, version)
+    event_bus.publish(
+        project_id,
+        {"type": "job", "shot_id": shot.id, "version_id": version.id, "status": job.status},
+    )
+    return version, job
+
+
 async def submit_shot(
     session: AsyncSession,
     project_id: str,
@@ -289,7 +349,17 @@ async def submit_shot(
     batch_size: int = 1,
     defer: bool = False,
 ) -> tuple[ShotVersion, GenerationJob]:
-    await assert_within_cap(session, "video", 1, auth=auth)
+    if shot.render_mode == "still":
+        # a still renders its keyframe as a freeze clip — image cost only, no video cap, and
+        # no continuation (it has no upstream video to chain from)
+        continue_from_previous = False
+        defer = False
+        if not shot.keyframe_frame_id:
+            from app.services import imagegen_service
+
+            await imagegen_service.generate_shot_keyframe(session, project_id, shot, auth=auth)
+    else:
+        await assert_within_cap(session, "video", 1, auth=auth)
 
     if character_id is None:
         # cast lock: the shot's persisted character is the default; an explicit request wins
@@ -342,6 +412,8 @@ async def _activate_submission(
     Runs either inline (normal submits) or from the reconciler (deferred chain jobs).
     """
     settings = get_settings()
+    if shot.render_mode == "still":
+        return await _render_still(session, project_id, shot, version, job)
     params = version.gen_params or {}
     first_frame_asset_id = params.get("first_frame_asset_id")
     reference_asset_ids = params.get("reference_asset_ids")
@@ -492,6 +564,9 @@ async def submit_shot_batch(
     """Best-of-N fan-out: N takes with the same direction (ViMax's unwired selector,
     actually shipped). All-or-nothing cap check up front; siblings share a batch_id so
     the reviewer-driven auto-select can pick a winner once every take lands."""
+    if shot.render_mode == "still":
+        # a still is deterministic — best-of-N is meaningless; render exactly one
+        return [await submit_shot(session, project_id, shot, auth=auth, character_id=character_id)]
     await assert_within_cap(session, "video", num_takes, auth=auth)
     batch_id = uuid.uuid4().hex if num_takes > 1 else None
     out: list[tuple[ShotVersion, GenerationJob]] = []
@@ -541,7 +616,10 @@ async def submit_scene_batch(
     doesn't exist yet is queued as a DEFERRED job; the reconciler activates it when the
     previous shot's take lands (ViMax's frame-event chaining, done as DB rows).
     """
-    await assert_within_cap(session, "video", len(shots), auth=auth)
+    # stills don't hit the video provider — only count the real video renders against the cap
+    await assert_within_cap(
+        session, "video", sum(1 for s in shots if s.render_mode != "still"), auth=auth
+    )
     out: list[tuple[ShotVersion, GenerationJob]] = []
     for shot in sorted(shots, key=lambda s: s.order):
         if not continue_from_previous:
