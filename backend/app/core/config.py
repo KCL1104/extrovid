@@ -128,8 +128,8 @@ class Settings(BaseSettings):
     session_secret: str = "dev-insecure-change-me"  # SessionMiddleware (OAuth state)
     google_client_id: str | None = None
     google_client_secret: str | None = None
-    backend_base_url: str = "https://backend-production-8b09.up.railway.app"  # OAuth redirect_uri
-    frontend_base_url: str = "https://frontend-production-4fea.up.railway.app"  # post-callback
+    backend_base_url: str = "https://www.extrovid.xyz"  # OAuth redirect_uri (override per env)
+    frontend_base_url: str = "https://www.extrovid.xyz"  # post-callback (override per env)
     # Daily caps assigned to a newly-registered (non-admin) account.
     default_daily_video_cap: int = 3
     default_daily_image_cap: int = 20

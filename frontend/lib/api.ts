@@ -5,7 +5,7 @@ import { type AuthUser, clearAuth, getToken } from "@/lib/auth";
 export type { AuthUser };
 
 export const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE ?? "https://backend-production-8b09.up.railway.app/api";
+  process.env.NEXT_PUBLIC_API_BASE ?? "https://www.extrovid.xyz/api";
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getToken();
