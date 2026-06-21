@@ -87,7 +87,10 @@ async def test_reference_roles_length_must_match_refs(client):
     pid, frame, shot_ids = await _project_with_images(client)
     r = await client.post(
         f"/api/projects/{pid}/shots/{shot_ids[0]}/generate",
-        json={"reference_asset_ids": [frame["image_asset_id"]], "reference_roles": ["scene", "outfit"]},
+        json={
+            "reference_asset_ids": [frame["image_asset_id"]],
+            "reference_roles": ["scene", "outfit"],  # 2 roles, 1 ref → invalid
+        },
     )
     assert r.status_code == 422
 

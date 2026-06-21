@@ -100,6 +100,19 @@ def test_reference_line_without_character_is_generic():
     assert p.startswith("The main subject matches the reference image")
 
 
+def test_default_style_and_lighting_when_brief_is_empty():
+    p = compose_shot_prompt(_shot())  # bare shot — no brief
+    assert "style: cinematic, shallow depth of field" in p
+    assert "lighting: natural, motivated lighting" in p
+
+
+def test_authored_style_and_lighting_suppress_the_defaults():
+    p = compose_shot_prompt(_shot(), visual_brief=VISUAL_BRIEF)
+    assert "style: modern cinematic" in p  # authored visual_style wins
+    assert "shallow depth of field" not in p  # default style not appended
+    assert "natural, motivated lighting" not in p  # brief has lighting → default suppressed
+
+
 def test_reference_roles_add_guidance_clauses():
     # roles parallel to reference_asset_ids surface a "what to take" clause per ref
     p = compose_shot_prompt(_shot(), has_reference_images=True, reference_roles=["outfit", "prop"])
@@ -109,11 +122,14 @@ def test_reference_roles_add_guidance_clauses():
 
 def test_reference_roles_identity_and_unknown_are_silent():
     base = compose_shot_prompt(_shot(), has_reference_images=True)
+
+    def p(roles):
+        return compose_shot_prompt(_shot(), has_reference_images=True, reference_roles=roles)
+
     # identity is folded into the subject line; an unknown role is ignored — both byte-identical
-    assert compose_shot_prompt(_shot(), has_reference_images=True, reference_roles=["identity"]) == base
-    assert compose_shot_prompt(_shot(), has_reference_images=True, reference_roles=["bogus"]) == base
-    # default (no roles) is unchanged too
-    assert compose_shot_prompt(_shot(), has_reference_images=True) == base
+    assert p(["identity"]) == base
+    assert p(["bogus"]) == base
+    assert base == compose_shot_prompt(_shot(), has_reference_images=True)  # default unchanged too
 
 
 def test_bare_shot_still_produces_a_prompt():

@@ -81,6 +81,11 @@ _REFERENCE_ROLE_CLAUSE = {
     "style": "the visual style references the reference image",
 }
 
+# house defaults when the brief leaves style/lighting blank — keeps even a bare shot from
+# reaching the model with no look direction at all. Authored values always win.
+_DEFAULT_STYLE = "cinematic, shallow depth of field"
+_DEFAULT_LIGHTING = "natural, motivated lighting"
+
 
 def compose_shot_prompt(
     shot: Shot,
@@ -177,11 +182,9 @@ def compose_shot_prompt(
     if style_pack and style_pack.visual_style:
         style_bits.append(style_pack.visual_style)
     style = ", ".join(dict.fromkeys(s for s in style_bits if s))
-    if style:
-        parts.append(f"style: {style}")
+    parts.append(f"style: {style or _DEFAULT_STYLE}")
     lighting = (style_pack.lighting if style_pack else None) or vb.get("lighting")
-    if lighting:
-        parts.append(f"lighting: {lighting}")
+    parts.append(f"lighting: {lighting or _DEFAULT_LIGHTING}")
     palette = (style_pack.palette if style_pack and style_pack.palette else None) or vb.get(
         "palette"
     )
