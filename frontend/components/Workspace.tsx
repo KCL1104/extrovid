@@ -825,6 +825,8 @@ export default function Workspace({ projectId }: { projectId: string }) {
                     busy={busy}
                     generating={generating}
                     batchBusy={batchBusy}
+                    projectId={projectId}
+                    budgetUsd={project?.budget_usd}
                     scopedShotIds={scopedShotIds}
                     scopedCastIds={scopedCastIds}
                     onOpen={setInspected}

@@ -5,6 +5,7 @@ import { Film, ImageIcon, Link2, Play } from "lucide-react";
 import type { Character, Scene, Shot, ShotVersion } from "@/lib/api";
 import { Button, EmptyState, Eyebrow, Panel, Pill, ScoreBadge, Skeleton, StatusBadge, cn } from "@/components/ui";
 import CastChip from "@/components/workspace/CastChip";
+import CostMeter from "@/components/workspace/CostMeter";
 import {
   aspectClass,
   cameraLine,
@@ -23,6 +24,8 @@ export default function ShotBoard({
   busy,
   generating,
   batchBusy,
+  projectId,
+  budgetUsd,
   scopedShotIds,
   scopedCastIds,
   onOpen,
@@ -40,6 +43,8 @@ export default function ShotBoard({
   busy: Record<string, boolean>;
   generating: string[];
   batchBusy: string | null;
+  projectId: string;
+  budgetUsd?: number | null;
   scopedShotIds: string[];
   scopedCastIds: string[];
   onOpen: (shotId: string) => void;
@@ -96,6 +101,7 @@ export default function ShotBoard({
         >
           <Link2 size={14} aria-hidden /> Render chained
         </Button>
+        <CostMeter projectId={projectId} budgetUsd={budgetUsd} refreshKey={shots.length} />
         {staleCount > 0 && (
           <Pill className="text-accent">{staleCount} stale — replanning recommended</Pill>
         )}
