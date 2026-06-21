@@ -107,6 +107,8 @@ async def update_project(session: AsyncSession, project: Project, data: ProjectU
         project.target_duration_sec = data.target_duration_sec
     if data.format is not None:
         project.format = data.format.value
+    if data.autonomy is not None:
+        project.autonomy = data.autonomy
     session.add(project)
     await session.commit()
     await session.refresh(project)

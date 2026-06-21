@@ -113,6 +113,7 @@ class ProjectUpdate(BaseModel):
         default=None, ge=MIN_TARGET_DURATION_SEC, le=MAX_TARGET_DURATION_SEC
     )
     format: VideoFormat | None = None
+    autonomy: Literal["co", "auto"] | None = None
 
 
 class ProjectStats(BaseModel):
@@ -135,6 +136,8 @@ class ProjectRead(BaseModel):
     aspect_ratio: str
     target_duration_sec: int
     format: str | None = None
+    budget_usd: float | None = None
+    autonomy: str = "co"
     created_at: datetime
     stats: ProjectStats | None = None
 

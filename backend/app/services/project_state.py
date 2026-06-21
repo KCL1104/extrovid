@@ -128,10 +128,10 @@ async def snapshot(session: AsyncSession, project_id: str) -> dict:
         .select_from(TimelineSequence)
         .where(TimelineSequence.project_id == project_id),
     )
-    from app.services.review_gate_service import projected_cost  # local: avoid import cycle
+    from app.services.review_gate_service import is_gated, projected_cost  # local: avoid import cycle
 
     tier = tier_for(project.target_duration_sec) if project else None
-    gated = tier is not None and tier.value != "short"
+    gated = bool(project and is_gated(project))  # respects autonomy ('auto' opens the gate)
     cost = await projected_cost(session, project_id)
     return {
         "project_status": project.status if project else None,

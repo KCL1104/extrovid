@@ -41,6 +41,25 @@ async def test_medium_is_gated_until_approved(client):
     assert ok.status_code == 200
 
 
+async def test_auto_autonomy_opens_the_gate_without_approval(client):
+    """'auto' direction autonomy skips the manual review gate (the budget ceiling still applies)."""
+    pid = await _plan(client, "a 180s explainer video")
+    assert (await client.get(f"/api/projects/{pid}/state")).json()["gated"] is True
+
+    # blocked while co-directing (the default)
+    blocked = await client.post(f"/api/projects/{pid}/scenes/0/generate-all", json={})
+    assert blocked.status_code == 409
+    assert "approved" in blocked.json()["detail"]
+
+    # flip to auto-direct -> the gate no longer blocks generation
+    patched = await client.patch(f"/api/projects/{pid}", json={"autonomy": "auto"})
+    assert patched.status_code == 200
+    assert patched.json()["autonomy"] == "auto"
+    assert (await client.get(f"/api/projects/{pid}/state")).json()["gated"] is False
+    ok = await client.post(f"/api/projects/{pid}/scenes/0/generate-all", json={})
+    assert ok.status_code == 200
+
+
 async def test_revising_after_approval_re_gates(client):
     """Editing the plan after sign-off invalidates it — generation re-locks until re-approved."""
     pid = await _plan(client, "a 180s explainer video")

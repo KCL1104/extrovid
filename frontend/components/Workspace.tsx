@@ -50,6 +50,7 @@ import ShotInspector from "@/components/workspace/ShotInspector";
 import CutPlanner from "@/components/workspace/CutPlanner";
 import QueueDock from "@/components/workspace/QueueDock";
 import TimelineStrip from "@/components/workspace/TimelineStrip";
+import AutonomyToggle from "@/components/workspace/AutonomyToggle";
 import CastPanel from "@/components/workspace/CastPanel";
 import DirectorPanel from "@/components/workspace/DirectorPanel";
 import { PROJECTS_CHANGED } from "@/components/Sidebar";
@@ -656,6 +657,13 @@ export default function Workspace({ projectId }: { projectId: string }) {
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {project && (
+            <AutonomyToggle
+              projectId={projectId}
+              value={project.autonomy ?? "co"}
+              onChange={(v) => setProject((p) => (p ? { ...p, autonomy: v } : p))}
+            />
+          )}
           <Pill>{aspect}</Pill>
           <Pill>{project?.target_duration_sec ?? "—"}s</Pill>
           {planned && (

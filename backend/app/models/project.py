@@ -30,6 +30,9 @@ class Project(SQLModel, table=True):
     # review-gate budget (P3): max projected render cost the user approved for this project.
     # None = no budget set; generation is blocked when the plan's projected cost exceeds it.
     budget_usd: float | None = Field(default=None)
+    # direction autonomy: "co" = pause at the review gate before spending (default);
+    # "auto" = run straight through, review at the end. The budget ceiling still applies.
+    autonomy: str = Field(default="co")
     created_at: datetime = Field(default_factory=_now)
 
 

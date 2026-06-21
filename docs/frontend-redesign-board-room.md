@@ -63,11 +63,17 @@
 > project", dashboard, gallery; ↑↓/⏎/esc with amber keycaps; in-workspace stage nav stays on the
 > number keys. New `CostMeter` on the storyboard batch toolbar shows the projected full-plan render
 > cost (`getPlanCost.total_usd`) against `project.budget_usd`, reddening when over budget — pre-spend
-> transparency at the "Render all" moment. `tsc`/`eslint`/`build` green. **AutonomyToggle DEFERRED:**
-> there is no backend autonomy/review-mode field (the review gate / `budget_usd` / `tier`+`gated`
-> snapshot are the existing HITL, but no auto-vs-co-direct switch) — shipping a no-op toggle would be
-> fake, so it needs a small backend field first. **Next: P7 (composer-first dashboard + intent tiles
-> + landing title-card).**
+> transparency at the "Render all" moment. `tsc`/`eslint`/`build` green.
+>
+> **P6.1 — AutonomyToggle SHIPPED (real, backed by a new backend field):** added `project.autonomy`
+> ("co" | "auto", default "co") + an Alembic migration; `is_gated()` and the `ProjectState.gated`
+> snapshot now return False in "auto" mode, so Auto-direct opens the manual review gate — the
+> per-project budget ceiling is still enforced (`budget_blockers` is independent). New
+> `AutonomyToggle` segmented control in the workspace header PATCHes it (optimistic); `ProjectRead`
+> now also exposes `budget_usd` so the P6 CostMeter's budget comparison actually works. New test
+> `test_auto_autonomy_opens_the_gate_without_approval`; **full backend pytest + frontend
+> tsc/eslint/build all green.** **Next: P7 (composer-first dashboard + intent tiles + landing
+> title-card).**
 
 > **Status (2026-06-21): DESIGN LOCKED.** Direction chosen after a 6-category
 > competitive study (oiioii.tv, AI-video SaaS, AI-coding SaaS, pro video tools, AI-native craft,
