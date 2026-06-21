@@ -72,8 +72,20 @@
 > `AutonomyToggle` segmented control in the workspace header PATCHes it (optimistic); `ProjectRead`
 > now also exposes `budget_usd` so the P6 CostMeter's budget comparison actually works. New test
 > `test_auto_autonomy_opens_the_gate_without_approval`; **full backend pytest + frontend
-> tsc/eslint/build all green.** **Next: P7 (composer-first dashboard + intent tiles + landing
-> title-card).**
+> tsc/eslint/build all green.**
+>
+> **P7 IMPLEMENTED + build-green 2026-06-21** (uncommitted) — composer-first onboarding:
+> the dashboard is now a generation-first **brief composer** (textarea + example chips +
+> `⌘⏎ to direct`) with **intent tiles** (Short clip / Narrative / Long-form / Import & revise) that
+> pre-set the length tier (→ gating) and an `+ advanced` row for aspect. On "Direct it →" it creates
+> the project at the tile's duration, stashes the brief (`sessionStorage extrovid:brief:<id>`) + the
+> chosen length (`localStorage extrovid:dur`) + an import flag, and navigates; `PlanPanel`'s `brief`
+> and `importOpen` now lazy-initialize from those (read-once, no `set-state-in-effect`). The landing
+> hero became a **title-card**: the `extrovid` wordmark as a now-showing slate (hairline rule) over a
+> serif "direct a film from a brief." tagline. `tsc`/`eslint`/`build` green.
+>
+> **★ Redesign roadmap P1–P7 COMPLETE** (+ P3.1 real streaming, P6.1 real autonomy). All on branch
+> `redesign/board-room`; not merged to main — ready for PR/review.
 
 > **Status (2026-06-21): DESIGN LOCKED.** Direction chosen after a 6-category
 > competitive study (oiioii.tv, AI-video SaaS, AI-coding SaaS, pro video tools, AI-native craft,
