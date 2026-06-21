@@ -75,7 +75,13 @@ export default function PlanPanel({
   onPlanned: () => Promise<void>;
   onRefresh: () => Promise<void> | void;
 }) {
-  const [brief, setBrief] = useState("");
+  const [brief, setBrief] = useState(() => {
+    // a brief handed over from the dashboard composer pre-fills here (read once, then cleared)
+    if (typeof window === "undefined") return "";
+    const v = sessionStorage.getItem(`extrovid:brief:${projectId}`);
+    if (v) sessionStorage.removeItem(`extrovid:brief:${projectId}`);
+    return v ?? "";
+  });
   // length selector — remembered across sessions; falls back to the account default length
   // (Settings → the booth, stored as a tier in user.default_format) then 20s.
   const [dur, setDur] = useState<string>(() => {
@@ -99,7 +105,15 @@ export default function PlanPanel({
   const [custom, setCustom] = useState<Record<string, string>>({});
   const lastAnswers = useRef<ClarifyAnswer[]>([]);
   // long-source import (script / novel / transcript)
-  const [importOpen, setImportOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(() => {
+    // the dashboard "Import & revise" intent opens the source importer on arrival
+    if (typeof window === "undefined") return false;
+    if (sessionStorage.getItem(`extrovid:import:${projectId}`)) {
+      sessionStorage.removeItem(`extrovid:import:${projectId}`);
+      return true;
+    }
+    return false;
+  });
   const [sourceText, setSourceText] = useState("");
   const [importing, setImporting] = useState(false);
   const [importNote, setImportNote] = useState<string | null>(null);
@@ -575,7 +589,7 @@ export default function PlanPanel({
                     <span className="flex items-center gap-2">
                       {scene.stale && (
                         <Pill
-                          className="text-run"
+                          className="text-accent"
                           // an upstream artifact changed after this scene was planned
                         >
                           stale

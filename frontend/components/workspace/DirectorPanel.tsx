@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Send, Wrench } from "lucide-react";
+import { Send } from "lucide-react";
 import {
   directorTurns,
   type DirectorAction,
@@ -9,7 +9,9 @@ import {
   type ProjectState,
 } from "@/lib/api";
 import { streamSSE } from "@/lib/sse";
-import { Button, Eyebrow, Panel, Pill, Spinner, cn } from "@/components/ui";
+import { Button, Eyebrow, Panel, Pill } from "@/components/ui";
+import AgentMessage from "@/components/workspace/AgentMessage";
+import StepTrace, { type TraceStep } from "@/components/workspace/StepTrace";
 import { errMsg, usageChanged } from "@/components/workspace/shared";
 
 type ChatItem = DirectorTurn & { actions?: DirectorAction[] };
@@ -24,14 +26,21 @@ const SUGGESTIONS = [
 export default function DirectorPanel({
   projectId,
   onChanged,
+  scopeChips = [],
+  onRemoveChip,
+  onClearScope,
 }: {
   projectId: string;
   onChanged: () => Promise<void> | void;
+  scopeChips?: { key: string; label: string; ref: string }[];
+  onRemoveChip?: (key: string) => void;
+  onClearScope?: () => void;
 }) {
   const [items, setItems] = useState<ChatItem[]>([]);
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
-  const [liveTools, setLiveTools] = useState<string[]>([]);
+  const [liveSteps, setLiveSteps] = useState<TraceStep[]>([]);
+  const [streamReply, setStreamReply] = useState(""); // the reply as it streams in, token by token
   const [state, setState] = useState<ProjectState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
@@ -44,27 +53,52 @@ export default function DirectorPanel({
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [items.length, sending]);
+  }, [items.length, sending, liveSteps.length, streamReply.length]);
 
   async function send(text?: string) {
-    const content = (text ?? message).trim();
-    if (!content || sending) return;
+    const raw = (text ?? message).trim();
+    if (!raw || sending) return;
+    // scope chips (selected shots / cast) ride into the instruction as a natural-language prefix
+    const prefix = scopeChips.length
+      ? `Regarding ${scopeChips.map((c) => c.ref).join(", ")}: `
+      : "";
+    const content = prefix + raw;
     setMessage("");
     setError(null);
     setSending(true);
-    setLiveTools([]);
+    setLiveSteps([]);
+    setStreamReply("");
+    onClearScope?.();
     setItems((xs) => [
       ...xs,
       { id: `local-${Date.now()}`, role: "user", content, created_at: "" },
     ]);
     try {
-      // stream the turn: tool pills appear live as the director works, then a final reply
+      // stream the turn: tool calls arrive as live trace steps, the reply streams token by token
       await streamSSE(`/projects/${projectId}/director/stream`, {
         method: "POST",
         body: { message: content },
         onEvent: (e) => {
           if (e.type === "tool_start" && typeof e.tool === "string") {
-            setLiveTools((t) => [...t, e.tool as string]);
+            const tool = e.tool;
+            setLiveSteps((s) => [...s, { id: `${tool}-${s.length}`, tool, status: "running" }]);
+          } else if (e.type === "tool_result" && typeof e.tool === "string") {
+            const tool = e.tool;
+            const isErr = e.error === true;
+            // resolve the most recent still-running step for this tool
+            setLiveSteps((steps) => {
+              for (let i = steps.length - 1; i >= 0; i--) {
+                if (steps[i].tool === tool && steps[i].status === "running") {
+                  const next = steps.slice();
+                  next[i] = { ...next[i], status: isErr ? "error" : "done" };
+                  return next;
+                }
+              }
+              return steps;
+            });
+          } else if (e.type === "text_delta") {
+            const delta = typeof e.delta === "string" ? e.delta : "";
+            if (delta) setStreamReply((r) => r + delta);
           } else if (e.type === "error") {
             setError(String(e.message ?? "stream error"));
           } else if (e.type === "done") {
@@ -91,25 +125,26 @@ export default function DirectorPanel({
       setError(errMsg(e));
     } finally {
       setSending(false);
-      setLiveTools([]);
+      setLiveSteps([]);
+      setStreamReply("");
     }
   }
 
   return (
-    <div className="mx-auto flex h-[calc(100vh-16rem)] max-w-3xl flex-col">
+    <div className="flex h-full flex-col">
       <div className="flex items-center justify-between gap-3">
         <div>
           <Eyebrow>Director</Eyebrow>
           <p className="mt-1 text-xs leading-relaxed text-faint">
-            One conversation that runs the production — it plans, revises (marking stale
-            work instead of destroying it), renders, and reads reviews through tools.
+            One conversation that runs the production — it plans, revises (marking stale work
+            instead of destroying it), renders, and reads reviews through tools.
           </p>
         </div>
         {state && (
           <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
             <Pill>{state.shots} shots</Pill>
             <Pill>{state.shots_with_take} rendered</Pill>
-            {state.stale_shots > 0 && <Pill className="text-run">{state.stale_shots} stale</Pill>}
+            {state.stale_shots > 0 && <Pill className="text-accent">{state.stale_shots} stale</Pill>}
             {state.jobs_in_flight > 0 && (
               <Pill className="text-run">{state.jobs_in_flight} in flight</Pill>
             )}
@@ -137,51 +172,26 @@ export default function DirectorPanel({
           </Panel>
         )}
         {items.map((t) => (
-          <div key={t.id} className={cn("flex", t.role === "user" ? "justify-end" : "justify-start")}>
-            <div
-              className={cn(
-                "max-w-[85%] rounded-[var(--radius)] border px-3.5 py-2.5 text-sm leading-relaxed",
-                t.role === "user"
-                  ? "border-accent/40 bg-accent/10 text-fg"
-                  : "border-border bg-panel text-muted",
-              )}
-            >
-              <p className="whitespace-pre-wrap">{t.content}</p>
-              {t.actions && t.actions.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-1.5 border-t border-border pt-2">
-                  {t.actions.map((a, i) => (
-                    <span
-                      key={`${a.tool}-${i}`}
-                      title={a.result_summary}
-                      className="inline-flex items-center gap-1 rounded-full border border-border-hi bg-bg-soft px-2 py-0.5 font-mono text-[0.65rem] text-faint"
-                    >
-                      <Wrench size={10} aria-hidden className="text-accent" />
-                      {a.tool}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
+          <AgentMessage key={t.id} turn={t} actions={t.actions} />
         ))}
         {sending && (
           <div className="flex justify-start">
-            <div className="flex flex-wrap items-center gap-2 rounded-[var(--radius)] border border-border bg-panel px-3.5 py-2.5">
-              <Spinner className="size-3.5 text-accent" />
-              {liveTools.length === 0 ? (
-                <span className="font-mono text-[0.7rem] text-faint">
-                  directing — may plan, revise or render…
-                </span>
+            <div className="w-full max-w-[85%] space-y-2">
+              {liveSteps.length > 0 && <StepTrace steps={liveSteps} />}
+              {streamReply ? (
+                <div className="rounded-[var(--radius)] border border-border bg-panel px-3.5 py-2.5 text-sm leading-relaxed text-muted">
+                  <p className="whitespace-pre-wrap">
+                    {streamReply}
+                    <span
+                      className="ml-0.5 inline-block animate-pulse font-mono text-live"
+                      aria-hidden
+                    >
+                      ▍
+                    </span>
+                  </p>
+                </div>
               ) : (
-                liveTools.map((t, i) => (
-                  <span
-                    key={`${t}-${i}`}
-                    className="inline-flex items-center gap-1 rounded-full border border-border-hi bg-bg-soft px-2 py-0.5 font-mono text-[0.65rem] text-faint"
-                  >
-                    <Wrench size={10} aria-hidden className="text-accent" />
-                    {t}
-                  </span>
-                ))
+                liveSteps.length === 0 && <StepTrace steps={[]} />
               )}
             </div>
           </div>
@@ -190,6 +200,34 @@ export default function DirectorPanel({
       </div>
 
       {error && <p className="mt-2 font-mono text-[0.75rem] text-fail">{error}</p>}
+
+      {scopeChips.length > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {scopeChips.map((c) => (
+            <span
+              key={c.key}
+              className="inline-flex items-center gap-1 rounded-full border border-accent/40 bg-accent/10 px-2 py-0.5 font-mono text-[0.65rem] text-accent"
+            >
+              {c.label}
+              <button
+                type="button"
+                onClick={() => onRemoveChip?.(c.key)}
+                aria-label={`Remove ${c.label}`}
+                className="text-accent/70 transition-colors hover:text-accent"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+          <button
+            type="button"
+            onClick={() => onClearScope?.()}
+            className="font-mono text-[0.6rem] text-faint transition-colors hover:text-fg"
+          >
+            clear
+          </button>
+        </div>
+      )}
 
       <div className="mt-3 flex items-center gap-2">
         <label className="sr-only" htmlFor="director-chat-input">

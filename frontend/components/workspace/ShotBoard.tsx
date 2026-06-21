@@ -3,7 +3,9 @@
 import { Fragment } from "react";
 import { Film, ImageIcon, Link2, Play } from "lucide-react";
 import type { Character, Scene, Shot, ShotVersion } from "@/lib/api";
-import { Button, EmptyState, Eyebrow, Panel, Pill, ScoreBadge, Spinner, StatusBadge, cn } from "@/components/ui";
+import { Button, EmptyState, Eyebrow, Panel, Pill, ScoreBadge, Skeleton, StatusBadge, cn } from "@/components/ui";
+import CastChip from "@/components/workspace/CastChip";
+import CostMeter from "@/components/workspace/CostMeter";
 import {
   aspectClass,
   cameraLine,
@@ -22,10 +24,16 @@ export default function ShotBoard({
   busy,
   generating,
   batchBusy,
+  projectId,
+  budgetUsd,
+  scopedShotIds,
+  scopedCastIds,
   onOpen,
   onGenerate,
   onKeyframes,
   onRenderAll,
+  onToggleShotScope,
+  onToggleCastScope,
 }: {
   shots: Shot[];
   scenes: Scene[];
@@ -35,10 +43,16 @@ export default function ShotBoard({
   busy: Record<string, boolean>;
   generating: string[];
   batchBusy: string | null;
+  projectId: string;
+  budgetUsd?: number | null;
+  scopedShotIds: string[];
+  scopedCastIds: string[];
   onOpen: (shotId: string) => void;
   onGenerate: (shotId: string) => void;
   onKeyframes: () => void;
   onRenderAll: (chained: boolean) => void;
+  onToggleShotScope: (shotId: string) => void;
+  onToggleCastScope: (castId: string) => void;
 }) {
   if (shots.length === 0) {
     return (
@@ -87,8 +101,9 @@ export default function ShotBoard({
         >
           <Link2 size={14} aria-hidden /> Render chained
         </Button>
+        <CostMeter projectId={projectId} budgetUsd={budgetUsd} refreshKey={shots.length} />
         {staleCount > 0 && (
-          <Pill className="text-run">{staleCount} stale — replanning recommended</Pill>
+          <Pill className="text-accent">{staleCount} stale — replanning recommended</Pill>
         )}
       </div>
       {/* live production counts — the board reads as a crew dashboard, not a static gallery */}
@@ -107,30 +122,24 @@ export default function ShotBoard({
           </span>
         )}
         {reviseCount > 0 && (
-          <span className="text-run">
+          <span className="text-accent">
             {reviseCount} keyframe{reviseCount === 1 ? "" : "s"} to revise
           </span>
         )}
       </div>
       {characters.length > 0 && (
-        <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="mb-4 flex flex-wrap items-center gap-2">
           <Eyebrow>Cast</Eyebrow>
           {characters.map((c) => (
-            <span
+            <CastChip
               key={c.id}
-              className="inline-flex items-center gap-2 rounded-full border border-border bg-panel px-2 py-1"
-            >
-              <span className="size-6 shrink-0 overflow-hidden rounded-full bg-bg-soft">
-                {isPlayable(c.reference_image_urls[0]) && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={c.reference_image_urls[0]} alt={c.name} className="size-full object-cover" />
-                )}
-              </span>
-              <span className="pr-1 text-xs text-fg">{c.name}</span>
-            </span>
+              character={c}
+              selected={scopedCastIds.includes(c.id)}
+              onToggle={() => onToggleCastScope(c.id)}
+            />
           ))}
           <span className="text-[0.7rem] text-faint">
-            Attach cast in the shot inspector for cross-shot consistency (r2v).
+            Click a cast member to direct with them (adds @{"{name}"} to the director).
           </span>
         </div>
       )}
@@ -153,7 +162,7 @@ export default function ShotBoard({
                   {sceneShots.length} shot{sceneShots.length === 1 ? "" : "s"} · ~{dur.toFixed(1)}s ·{" "}
                   {rendered}/{sceneShots.length} rendered
                 </span>
-                {sceneStale && <Pill className="text-run">stale</Pill>}
+                {sceneStale && <Pill className="text-accent">stale</Pill>}
               </header>
               {/* horizontal filmstrip — the storyboard reads as a sequence, not a gallery */}
               <div className="flex snap-x gap-4 overflow-x-auto pb-3">
@@ -164,8 +173,10 @@ export default function ShotBoard({
                       versions={versions[shot.id] ?? []}
                       aspect={aspect}
                       busy={!!busy[shot.id] || generating.includes(shot.id)}
+                      selected={scopedShotIds.includes(shot.id)}
                       onOpen={() => onOpen(shot.id)}
                       onGenerate={() => onGenerate(shot.id)}
+                      onToggleScope={() => onToggleShotScope(shot.id)}
                       delay={i * 40}
                     />
                   </div>
@@ -184,16 +195,20 @@ function ShotCard({
   versions,
   aspect,
   busy,
+  selected,
   onOpen,
   onGenerate,
+  onToggleScope,
   delay,
 }: {
   shot: Shot;
   versions: ShotVersion[];
   aspect: string;
   busy: boolean;
+  selected: boolean;
   onOpen: () => void;
   onGenerate: () => void;
+  onToggleScope: () => void;
   delay: number;
 }) {
   const take = chosenTake(versions);
@@ -204,9 +219,17 @@ function ShotCard({
   const finishedCount = versions.filter((v) => v.output_asset_id).length;
 
   return (
-    <Panel className="rise overflow-hidden" style={{ animationDelay: `${delay}ms` }}>
+    <Panel selected={selected} className="rise overflow-hidden" style={{ animationDelay: `${delay}ms` }}>
       <button
-        onClick={onOpen}
+        onClick={(e) => {
+          // ⌘/Ctrl/Shift-click scopes the director to this shot; a plain click opens the inspector
+          if (e.metaKey || e.ctrlKey || e.shiftKey) {
+            e.preventDefault();
+            onToggleScope();
+          } else {
+            onOpen();
+          }
+        }}
         aria-label={`Open shot ${shot.order + 1}: ${shot.purpose}`}
         className={cn(
           "group relative block w-full bg-bg-soft text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent",
@@ -225,10 +248,10 @@ function ShotCard({
             </span>
           </>
         ) : (
-          <span className="flex size-full flex-col items-center justify-center gap-2 p-3 text-center">
+          <span className="relative flex size-full flex-col items-center justify-center gap-2 p-3 text-center">
             {jobRunning ? (
               <>
-                <Spinner className="size-6 text-accent opacity-100" />
+                <Skeleton className="absolute inset-0 rounded-none" />
                 <StatusBadge status="running" />
               </>
             ) : failed ? (
@@ -266,7 +289,7 @@ function ShotCard({
             {shot.stale && (
               <span
                 title="An upstream artifact changed after this shot was planned"
-                className="rounded bg-black/60 px-1.5 py-0.5 font-mono text-[0.6rem] text-run backdrop-blur"
+                className="rounded bg-black/60 px-1.5 py-0.5 font-mono text-[0.6rem] text-accent backdrop-blur"
               >
                 stale
               </span>
@@ -293,6 +316,18 @@ function ShotCard({
           {cameraLine(shot)} — {shot.performance_spec.subject}: {shot.performance_spec.action}
         </p>
         <StageStrip shot={shot} jobRunning={jobRunning} failed={failed} take={take} />
+        <button
+          type="button"
+          onClick={onToggleScope}
+          aria-pressed={selected}
+          title={selected ? "Remove from director scope" : "Direct this shot — adds @shot to the director"}
+          className={cn(
+            "mt-3 inline-flex items-center gap-1 rounded-[var(--radius)] px-1.5 py-1 font-mono text-[0.65rem] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+            selected ? "text-accent" : "text-faint hover:text-fg",
+          )}
+        >
+          ◎ {selected ? "directing" : "direct"}
+        </button>
         {!take && !jobRunning && !failed && (
           <div className="mt-3">
             <Button variant="primary" onClick={onGenerate} className="w-full justify-center">
@@ -308,12 +343,14 @@ function ShotCard({
 const STAGE_DOT: Record<string, string> = {
   ok: "bg-ok",
   run: "bg-run pulse-dot",
+  warn: "bg-accent",
   fail: "bg-fail",
   off: "bg-border-hi",
 };
 const STAGE_TEXT: Record<string, string> = {
   ok: "text-ok",
   run: "text-run",
+  warn: "text-accent",
   fail: "text-fail",
   off: "text-faint",
 };
@@ -333,7 +370,7 @@ function StageStrip({
   const kfTone = !shot.keyframe_frame_id
     ? "off"
     : shot.keyframe_verdict === "revise"
-      ? "run"
+      ? "warn"
       : "ok";
   const renderTone = jobRunning ? "run" : failed ? "fail" : take ? "ok" : "off";
   const reviewTone = !take?.review ? "off" : take.review.verdict === "revise" ? "fail" : "ok";

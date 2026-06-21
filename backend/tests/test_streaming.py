@@ -1,24 +1,33 @@
 """SSE live streaming: director tool events + project job-progress. Offline (mock)."""
 
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
-from pydantic_ai.models.function import FunctionModel
+from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
 from app.agents.director_agent import director_agent
 from app.core import event_bus
 
 
-def _scripted_tool_caller():
-    """A director model that calls one real tool, then replies — so the stream actually
-    emits tool events (the default dispatch_mock calls NO tools)."""
-    state = {"n": 0}
+def _scripted_director() -> FunctionModel:
+    """A streamable director model that calls one real tool, then replies — so the SSE path
+    exercises tool events AND text deltas (the default dispatch_mock calls NO tools)."""
+    fstate = {"n": 0}
 
     def fn(messages, info):
-        state["n"] += 1
-        if state["n"] == 1:
+        fstate["n"] += 1
+        if fstate["n"] == 1:
             return ModelResponse(parts=[ToolCallPart(tool_name="get_project_state", args={})])
         return ModelResponse(parts=[TextPart(content="Here is your project state.")])
 
-    return fn
+    sstate = {"n": 0}
+
+    async def stream_fn(messages, info):
+        sstate["n"] += 1
+        if sstate["n"] == 1:
+            yield {0: DeltaToolCall(name="get_project_state", json_args="{}", tool_call_id="c1")}
+        else:
+            yield "Here is your project state."
+
+    return FunctionModel(fn, stream_function=stream_fn)
 
 
 async def _project(client) -> str:
@@ -30,7 +39,7 @@ async def _project(client) -> str:
 async def test_director_stream_emits_tool_events_then_done(client):
     pid = await _project(client)
     body = ""
-    with director_agent.override(model=FunctionModel(_scripted_tool_caller())):
+    with director_agent.override(model=_scripted_director()):
         async with client.stream(
             "POST", f"/api/projects/{pid}/director/stream", json={"message": "status?"}
         ) as resp:
@@ -41,13 +50,14 @@ async def test_director_stream_emits_tool_events_then_done(client):
     assert "tool_start" in body
     assert "get_project_state" in body  # the tool the scripted model called
     assert "tool_result" in body
+    assert "text_delta" in body  # the reply streams as token deltas, not only on `done`
     assert '"type": "done"' in body
-    assert "Here is your project state." in body  # the final reply rides on `done`
+    assert "Here is your project state." in body  # the final reply also rides on `done`
 
 
 async def test_director_stream_persists_the_turn(client):
     pid = await _project(client)
-    with director_agent.override(model=FunctionModel(_scripted_tool_caller())):
+    with director_agent.override(model=_scripted_director()):
         async with client.stream(
             "POST", f"/api/projects/{pid}/director/stream", json={"message": "hello"}
         ) as resp:

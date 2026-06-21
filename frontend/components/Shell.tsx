@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
+import CommandPalette from "@/components/CommandPalette";
 
 // Two-pane app layout. Desktop (lg+) keeps the sidebar as a permanent left rail;
 // on smaller screens it collapses into a slide-in drawer opened from a sticky top bar.
@@ -72,6 +73,8 @@ export default function Shell({ children }: { children: ReactNode }) {
       <Sidebar open={open} onClose={() => setOpen(false)} />
 
       <div className="min-w-0 flex-1">{children}</div>
+
+      <CommandPalette />
     </div>
   );
 }

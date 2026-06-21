@@ -41,14 +41,16 @@ import {
   type ShotVersion,
 } from "@/lib/api";
 import { streamSSE } from "@/lib/sse";
-import { Alert, Button, Eyebrow, Pill, Tabs } from "@/components/ui";
+import { Alert, Button, cn, Drawer, Eyebrow, Pill, StageRail, Tabs, type TabItem } from "@/components/ui";
 import PlanPanel from "@/components/workspace/PlanPanel";
 import LookBoard from "@/components/workspace/LookBoard";
 import ReviewPanel from "@/components/workspace/ReviewPanel";
 import ShotBoard from "@/components/workspace/ShotBoard";
 import ShotInspector from "@/components/workspace/ShotInspector";
 import CutPlanner from "@/components/workspace/CutPlanner";
-import QueuePanel from "@/components/workspace/QueuePanel";
+import QueueDock from "@/components/workspace/QueueDock";
+import TimelineStrip from "@/components/workspace/TimelineStrip";
+import AutonomyToggle from "@/components/workspace/AutonomyToggle";
 import CastPanel from "@/components/workspace/CastPanel";
 import DirectorPanel from "@/components/workspace/DirectorPanel";
 import { PROJECTS_CHANGED } from "@/components/Sidebar";
@@ -61,19 +63,12 @@ import {
   usageChanged,
 } from "@/components/workspace/shared";
 
-type TabId = "plan" | "look" | "cast" | "review" | "shots" | "cut" | "queue" | "director";
-const TAB_ORDER: TabId[] = [
-  "plan",
-  "look",
-  "cast",
-  "review",
-  "shots",
-  "cut",
-  "queue",
-  "director",
-];
+// The six pipeline stages — the canvas regions. Director (right rail) and Queue (footer dock)
+// are co-present surfaces, not stages, so they no longer live in this list.
+type StageId = "plan" | "look" | "cast" | "review" | "shots" | "cut";
+const STAGE_ORDER: StageId[] = ["plan", "look", "cast", "review", "shots", "cut"];
 
-/** lg+ viewport — drives whether the shot inspector docks as a pane or opens as a drawer. */
+/** lg+ viewport — drives whether the rails dock as panes or open as drawers. */
 function useIsDesktop() {
   const [desktop, setDesktop] = useState(false);
   useEffect(() => {
@@ -95,8 +90,13 @@ export default function Workspace({ projectId }: { projectId: string }) {
   const [versions, setVersions] = useState<Record<string, ShotVersion[]>>({});
   const [roughCuts, setRoughCuts] = useState<RoughCut[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [tab, setTab] = useState<TabId>("plan");
+  const [tab, setTab] = useState<StageId>("plan");
   const [inspected, setInspected] = useState<string | null>(null);
+  const [directorOpen, setDirectorOpen] = useState(false); // mobile director drawer
+  const [rightCollapsed, setRightCollapsed] = useState(false); // desktop right rail collapse
+  const [scopedShotIds, setScopedShotIds] = useState<string[]>([]); // director scope: shots
+  const [scopedCastIds, setScopedCastIds] = useState<string[]>([]); // director scope: cast
+  const [boardView, setBoardView] = useState<"board" | "sequence">("board"); // storyboard altitude
   const [assembling, setAssembling] = useState(false);
   const [publishing, setPublishing] = useState<string | null>(null);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
@@ -175,13 +175,13 @@ export default function Workspace({ projectId }: { projectId: string }) {
     void Promise.resolve().then(loadAll);
   }, [loadAll]);
 
-  // number keys 1-5 jump between workspaces (unless typing)
+  // number keys 1-6 jump between stages (unless typing)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
-      const i = ["1", "2", "3", "4", "5", "6", "7", "8"].indexOf(e.key);
-      if (i >= 0) setTab(TAB_ORDER[i]);
+      const i = ["1", "2", "3", "4", "5", "6"].indexOf(e.key);
+      if (i >= 0) setTab(STAGE_ORDER[i]);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -475,12 +475,34 @@ export default function Workspace({ projectId }: { projectId: string }) {
     }
   }
 
+  // ── director scope (select-to-scope) ──────────────────────────────────────
+  // toggling always surfaces the director (close the inspector, expand the rail) so the
+  // freshly-pinned chip is visible; sending an instruction clears the scope.
+  function toggleShotScope(id: string) {
+    setInspected(null);
+    setRightCollapsed(false);
+    setScopedShotIds((xs) => (xs.includes(id) ? xs.filter((x) => x !== id) : [...xs, id]));
+  }
+  function toggleCastScope(id: string) {
+    setInspected(null);
+    setRightCollapsed(false);
+    setScopedCastIds((xs) => (xs.includes(id) ? xs.filter((x) => x !== id) : [...xs, id]));
+  }
+  function clearScope() {
+    setScopedShotIds([]);
+    setScopedCastIds([]);
+  }
+  function removeChip(key: string) {
+    const [kind, id] = key.split(":");
+    if (kind === "shot") setScopedShotIds((xs) => xs.filter((x) => x !== id));
+    else setScopedCastIds((xs) => xs.filter((x) => x !== id));
+  }
+
   // ── derived ──────────────────────────────────────────────────────────────
 
   const planned = shots.length > 0;
   const renderedShots = shots.filter((s) => isRendered(versions[s.id] ?? [])).length;
   const generatedSets = conceptSets.filter((c) => c.status !== "planned").length;
-  const runningJobs = jobs.filter((j) => j.status === "running" || j.status === "queued").length;
   const mockMode = shots.some((s) =>
     (versions[s.id] ?? []).some((v) => v.output_asset_id && !isPlayable(v.video_url)),
   );
@@ -491,6 +513,50 @@ export default function Workspace({ projectId }: { projectId: string }) {
     const prev = shots.find((s) => s.order === inspectedShot.order - 1);
     return !!prev && isRendered(versions[prev.id] ?? []);
   })();
+
+  // the pipeline stages, as a navigable map (shared by the desktop StageRail and the mobile Tabs)
+  const stageTabs: TabItem[] = [
+    {
+      id: "plan",
+      label: "Plan",
+      meta: scenes.length ? `${scenes.length} sc` : undefined,
+      done: scenes.length > 0,
+    },
+    {
+      id: "look",
+      label: "Look",
+      meta: conceptSets.length ? `${generatedSets}/${conceptSets.length}` : undefined,
+      done: generatedSets > 0,
+      locked: scenes.length === 0,
+    },
+    {
+      id: "cast",
+      label: "Cast",
+      meta: characters.length || undefined,
+      done: characters.length > 0,
+      locked: scenes.length === 0,
+    },
+    {
+      id: "review",
+      label: "Review",
+      meta: shots.length || undefined,
+      locked: shots.length === 0,
+    },
+    {
+      id: "shots",
+      label: "Storyboard",
+      meta: shots.length ? `${renderedShots}/${shots.length}` : undefined,
+      done: renderedShots > 0,
+      locked: shots.length === 0,
+    },
+    {
+      id: "cut",
+      label: "Cut",
+      meta: roughCuts.length || undefined,
+      done: roughCuts.length > 0,
+      locked: renderedShots === 0,
+    },
+  ];
 
   const inspectorEl = inspectedShot ? (
     <ShotInspector
@@ -512,6 +578,29 @@ export default function Workspace({ projectId }: { projectId: string }) {
       onVoiceover={() => genVoiceover(inspectedShot.id)}
     />
   ) : null;
+
+  const scopeChips: { key: string; label: string; ref: string }[] = [
+    ...scopedShotIds.flatMap((id) => {
+      const s = shots.find((x) => x.id === id);
+      return s
+        ? [{ key: `shot:${id}`, label: `@shot ${s.order + 1}`, ref: `shot ${s.order + 1}` }]
+        : [];
+    }),
+    ...scopedCastIds.flatMap((id) => {
+      const c = characters.find((x) => x.id === id);
+      return c ? [{ key: `cast:${id}`, label: `@${c.name}`, ref: `the character ${c.name}` }] : [];
+    }),
+  ];
+
+  const director = (
+    <DirectorPanel
+      projectId={projectId}
+      onChanged={loadAll}
+      scopeChips={scopeChips}
+      onRemoveChip={removeChip}
+      onClearScope={clearScope}
+    />
+  );
 
   // initial load / fatal error states
   if (loading && !project) {
@@ -542,21 +631,19 @@ export default function Workspace({ projectId }: { projectId: string }) {
   }
 
   return (
-    <div className="flex">
-      <main className="min-w-0 flex-1 px-4 py-8 sm:px-6 sm:py-10">
-        <div className="mx-auto max-w-6xl">
+    <div className="flex min-h-screen flex-col">
       <div aria-live="polite" className="sr-only">
         {announce}
       </div>
 
-      {/* header — `.rise` leaves a persistent transform (stacking context at z-auto), which
-          would trap the ⋯ dropdown BELOW the sticky stage-tabs (z-30); lift it while open */}
-      <div
-        className={`rise flex flex-wrap items-center justify-between gap-4 ${
+      {/* header — spans the full width above the editing room.
+          `relative z-40` while the ⋯ menu is open so its dropdown clears the sticky rails. */}
+      <header
+        className={`flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-4 py-3 sm:px-6 ${
           menuOpen ? "relative z-40" : ""
         }`}
       >
-        <div className="flex min-w-0 flex-1 items-center gap-4">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
           <Link
             href="/"
             aria-label="Back to projects"
@@ -566,10 +653,17 @@ export default function Workspace({ projectId }: { projectId: string }) {
           </Link>
           <div className="min-w-0">
             <Eyebrow>{project?.status ?? "—"}</Eyebrow>
-            <h1 className="title truncate text-3xl text-fg">{project?.title ?? "…"}</h1>
+            <h1 className="title truncate text-2xl text-fg sm:text-3xl">{project?.title ?? "…"}</h1>
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {project && (
+            <AutonomyToggle
+              projectId={projectId}
+              value={project.autonomy ?? "co"}
+              onChange={(v) => setProject((p) => (p ? { ...p, autonomy: v } : p))}
+            />
+          )}
           <Pill>{aspect}</Pill>
           <Pill>{project?.target_duration_sec ?? "—"}s</Pill>
           {planned && (
@@ -577,6 +671,14 @@ export default function Workspace({ projectId }: { projectId: string }) {
               {renderedShots}/{shots.length} shots
             </Pill>
           )}
+          {/* mobile: open the director as a drawer (it lives in the right rail on desktop) */}
+          <button
+            type="button"
+            onClick={() => setDirectorOpen(true)}
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-[var(--radius)] border border-border bg-panel px-2.5 font-mono text-xs text-muted transition-colors hover:border-accent/40 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent lg:hidden"
+          >
+            Director
+          </button>
           {/* project actions */}
           <div className="relative">
             <button
@@ -600,7 +702,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
                 />
                 <div
                   role="menu"
-                  className="absolute right-0 z-50 mt-1 w-44 overflow-hidden rounded-[var(--radius)] border border-border bg-panel shadow-2xl"
+                  className="absolute right-0 z-50 mt-1 w-44 overflow-hidden rounded-[var(--radius)] bg-elevated ring-1 ring-border-hi"
                 >
                   <button
                     role="menuitem"
@@ -618,165 +720,193 @@ export default function Workspace({ projectId }: { projectId: string }) {
             )}
           </div>
         </div>
-      </div>
+      </header>
 
       {error && (
-        <div className="mt-4">
+        <div className="px-4 pt-4 sm:px-6">
           <Alert>{error}</Alert>
         </div>
       )}
 
       {mockMode && (
-        <div className="mt-4 flex items-center gap-2 rounded-[var(--radius)] border border-border-hi bg-bg-soft px-3 py-2 text-xs text-muted">
-          <Pill>mock mode</Pill>
-          <span>Videos are simulated — previews are unavailable, but the full workflow runs.</span>
+        <div className="px-4 pt-4 sm:px-6">
+          <div className="flex items-center gap-2 rounded-[var(--radius)] border border-border-hi bg-bg-soft px-3 py-2 text-xs text-muted">
+            <Pill>mock mode</Pill>
+            <span>Videos are simulated — previews are unavailable, but the full workflow runs.</span>
+          </div>
         </div>
       )}
 
-      {/* stage tabs */}
-      <div className="sticky top-0 z-30 -mx-4 mt-6 border-b border-border bg-bg/85 px-4 py-2 backdrop-blur sm:-mx-6 sm:px-6">
-        <Tabs
-          active={tab}
-          onSelect={(id) => setTab(id as TabId)}
-          tabs={[
-            {
-              id: "plan",
-              label: "Plan",
-              meta: scenes.length ? `${scenes.length} sc` : undefined,
-              done: scenes.length > 0,
-            },
-            {
-              id: "look",
-              label: "Look",
-              meta: conceptSets.length ? `${generatedSets}/${conceptSets.length}` : undefined,
-              done: generatedSets > 0,
-              locked: scenes.length === 0,
-            },
-            {
-              id: "cast",
-              label: "Cast",
-              meta: characters.length || undefined,
-              done: characters.length > 0,
-              locked: scenes.length === 0,
-            },
-            {
-              id: "review",
-              label: "Review",
-              meta: shots.length || undefined,
-              locked: shots.length === 0,
-            },
-            {
-              id: "shots",
-              label: "Storyboard",
-              meta: shots.length ? `${renderedShots}/${shots.length}` : undefined,
-              done: renderedShots > 0,
-              locked: shots.length === 0,
-            },
-            {
-              id: "cut",
-              label: "Cut",
-              meta: roughCuts.length || undefined,
-              done: roughCuts.length > 0,
-              locked: renderedShots === 0,
-            },
-            {
-              id: "queue",
-              label: "Queue",
-              meta: jobs.length || undefined,
-              live: runningJobs > 0,
-              divider: true,
-            },
-            { id: "director", label: "Director" },
-          ]}
-        />
-      </div>
-
-      <div className="mt-6 pb-24">
-        {tab === "plan" && (
-          <PlanPanel
-            projectId={projectId}
-            planned={planned}
-            scenes={scenes}
-            conceptSets={conceptSets}
-            onPlanned={async () => {
-              setGenerating([]);
-              setBusy({});
-              await loadAll();
-              // land on the review gate: show the full plan + cost before any spend
-              setTab("review");
-            }}
-            onRefresh={loadAll}
-          />
-        )}
-        {tab === "look" && (
-          <LookBoard
-            conceptSets={conceptSets}
-            aspect={aspect}
-            busy={busy}
-            onGenerate={genImages}
-            onPromote={promote}
-            onRefine={refine}
-          />
-        )}
-        {tab === "cast" && (
-          <CastPanel
-            projectId={projectId}
-            characters={characters}
-            hasScript={scenes.length > 0}
-            onChanged={async () => setCharacters(await listCharacters(projectId))}
-          />
-        )}
-        {tab === "review" && (
-          <ReviewPanel
-            projectId={projectId}
-            scenes={scenes}
-            shots={shots}
-            onRefresh={loadAll}
-          />
-        )}
-        {tab === "shots" && (
-          <ShotBoard
-            shots={shots}
-            scenes={scenes}
-            versions={versions}
-            characters={characters}
-            aspect={aspect}
-            busy={busy}
-            generating={generating}
-            batchBusy={batchBusy}
-            onOpen={setInspected}
-            onGenerate={(shotId) => genShot(shotId)}
-            onKeyframes={genAllKeyframes}
-            onRenderAll={renderAll}
-          />
-        )}
-        {tab === "cut" && (
-          <CutPlanner
-            shots={shots}
-            versions={versions}
-            roughCuts={roughCuts}
-            aspect={aspect}
-            assembling={assembling}
-            publishing={publishing}
-            onAssemble={assemble}
-            onTogglePublish={togglePublish}
-          />
-        )}
-        {tab === "queue" && <QueuePanel jobs={jobs} onRetry={retry} />}
-        {tab === "director" && <DirectorPanel projectId={projectId} onChanged={loadAll} />}
-      </div>
-
-        </div>
-      </main>
-      {/* desktop: the inspector docks as a persistent third pane; smaller screens: modal drawer */}
-      {inspectedShot &&
-        (isDesktop ? (
-          <aside className="sticky top-0 h-screen w-[24rem] shrink-0 overflow-hidden border-l border-border bg-bg xl:w-[28rem]">
-            {inspectorEl}
+      {/* three-zone editing room: stage map · canvas (hero) · director rail */}
+      <div className="flex flex-1">
+        {/* stage map (desktop) */}
+        {isDesktop && (
+          <aside className="sticky top-0 hidden h-screen w-44 shrink-0 flex-col overflow-y-auto border-r border-border bg-bg-soft/40 px-2 py-4 lg:flex">
+            <p className="eyebrow px-2 pb-2">Stages</p>
+            <StageRail stages={stageTabs} active={tab} onSelect={(id) => setTab(id as StageId)} />
           </aside>
-        ) : (
-          inspectorEl
-        ))}
+        )}
+
+        {/* canvas */}
+        <main className="relative flex min-w-0 flex-1 flex-col">
+          {/* mobile stage bar */}
+          {!isDesktop && (
+            <div className="sticky top-0 z-20 border-b border-border bg-bg/85 px-4 py-2 backdrop-blur">
+              <Tabs active={tab} onSelect={(id) => setTab(id as StageId)} tabs={stageTabs} />
+            </div>
+          )}
+
+          <div className="flex-1 px-4 py-6 pb-28 sm:px-6">
+            {tab === "plan" && (
+              <PlanPanel
+                projectId={projectId}
+                planned={planned}
+                scenes={scenes}
+                conceptSets={conceptSets}
+                onPlanned={async () => {
+                  setGenerating([]);
+                  setBusy({});
+                  await loadAll();
+                  // land on the review gate: show the full plan + cost before any spend
+                  setTab("review");
+                }}
+                onRefresh={loadAll}
+              />
+            )}
+            {tab === "look" && (
+              <LookBoard
+                conceptSets={conceptSets}
+                aspect={aspect}
+                busy={busy}
+                onGenerate={genImages}
+                onPromote={promote}
+                onRefine={refine}
+              />
+            )}
+            {tab === "cast" && (
+              <CastPanel
+                projectId={projectId}
+                characters={characters}
+                hasScript={scenes.length > 0}
+                onChanged={async () => setCharacters(await listCharacters(projectId))}
+              />
+            )}
+            {tab === "review" && (
+              <ReviewPanel projectId={projectId} scenes={scenes} shots={shots} onRefresh={loadAll} />
+            )}
+            {tab === "shots" && (
+              <div className="space-y-4">
+                {shots.length > 0 && (
+                  <div className="inline-flex rounded-[var(--radius)] border border-border bg-bg-soft p-0.5 font-mono text-xs">
+                    {(["board", "sequence"] as const).map((v) => (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => setBoardView(v)}
+                        aria-pressed={boardView === v}
+                        className={cn(
+                          "rounded-[calc(var(--radius)-0.2rem)] px-3 py-1 capitalize transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                          boardView === v ? "bg-panel-hi text-accent" : "text-muted hover:text-fg",
+                        )}
+                      >
+                        {v}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {boardView === "sequence" && shots.length > 0 ? (
+                  <TimelineStrip
+                    shots={shots}
+                    scenes={scenes}
+                    versions={versions}
+                    scopedShotIds={scopedShotIds}
+                    onOpen={setInspected}
+                    onToggleShotScope={toggleShotScope}
+                  />
+                ) : (
+                  <ShotBoard
+                    shots={shots}
+                    scenes={scenes}
+                    versions={versions}
+                    characters={characters}
+                    aspect={aspect}
+                    busy={busy}
+                    generating={generating}
+                    batchBusy={batchBusy}
+                    projectId={projectId}
+                    budgetUsd={project?.budget_usd}
+                    scopedShotIds={scopedShotIds}
+                    scopedCastIds={scopedCastIds}
+                    onOpen={setInspected}
+                    onGenerate={(shotId) => genShot(shotId)}
+                    onKeyframes={genAllKeyframes}
+                    onRenderAll={renderAll}
+                    onToggleShotScope={toggleShotScope}
+                    onToggleCastScope={toggleCastScope}
+                  />
+                )}
+              </div>
+            )}
+            {tab === "cut" && (
+              <CutPlanner
+                shots={shots}
+                versions={versions}
+                roughCuts={roughCuts}
+                aspect={aspect}
+                assembling={assembling}
+                publishing={publishing}
+                onAssemble={assemble}
+                onTogglePublish={togglePublish}
+              />
+            )}
+          </div>
+
+          {/* queue — a persistent footer dock, not a tab */}
+          <QueueDock jobs={jobs} onRetry={retry} />
+        </main>
+
+        {/* right rail (desktop): the inspected shot, else the persistent director */}
+        {isDesktop &&
+          (inspectedShot ? (
+            <aside className="sticky top-0 h-screen w-[22rem] shrink-0 overflow-hidden border-l border-border bg-bg xl:w-[26rem]">
+              {inspectorEl}
+            </aside>
+          ) : rightCollapsed ? (
+            <button
+              type="button"
+              onClick={() => setRightCollapsed(false)}
+              aria-label="Open director"
+              className="sticky top-0 flex h-screen w-10 shrink-0 items-center justify-center border-l border-border bg-bg-soft/40 text-faint transition-colors hover:text-accent"
+            >
+              <span className="font-mono text-xs tracking-widest [writing-mode:vertical-rl]">
+                Director
+              </span>
+            </button>
+          ) : (
+            <aside className="sticky top-0 flex h-screen w-[22rem] shrink-0 flex-col overflow-hidden border-l border-border bg-bg xl:w-[26rem]">
+              <div className="flex shrink-0 items-center justify-end border-b border-border px-2 py-1.5">
+                <button
+                  type="button"
+                  onClick={() => setRightCollapsed(true)}
+                  aria-label="Collapse director"
+                  title="Collapse director"
+                  className="inline-flex size-7 items-center justify-center rounded-[var(--radius)] text-faint transition-colors hover:bg-panel-hi hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  →
+                </button>
+              </div>
+              <div className="min-h-0 flex-1 overflow-hidden px-4 pb-3">{director}</div>
+            </aside>
+          ))}
+      </div>
+
+      {/* mobile: inspector renders its own drawer (docked=false); director opens on demand */}
+      {!isDesktop && inspectorEl}
+      {!isDesktop && (
+        <Drawer open={directorOpen} onClose={() => setDirectorOpen(false)} label="Director">
+          <div className="flex h-full flex-col p-4">{director}</div>
+        </Drawer>
+      )}
 
       {confirmDelete && project && (
         <div
@@ -787,7 +917,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md rounded-[var(--radius)] border border-fail/30 bg-panel p-6 shadow-2xl"
+            className="w-full max-w-md rounded-[var(--radius)] border border-fail/30 bg-elevated p-6"
           >
             <h2 className="title text-xl text-fg">Delete this project?</h2>
             <p className="mt-2 text-sm leading-relaxed text-muted">

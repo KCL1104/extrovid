@@ -56,6 +56,7 @@ export type Project = {
   target_duration_sec: number;
   format?: string | null; // content intent (length selector)
   budget_usd?: number | null; // review-gate spend ceiling (P3)
+  autonomy?: "co" | "auto"; // "co" = pause at the review gate; "auto" = run straight through
   created_at: string;
   stats?: ProjectStats | null;
 };
@@ -403,7 +404,13 @@ export const createProject = (
 export const getProject = (id: string) => api<Project>(`/projects/${id}`);
 export const updateProject = (
   id: string,
-  body: { title?: string; aspect_ratio?: string; target_duration_sec?: number; format?: string },
+  body: {
+    title?: string;
+    aspect_ratio?: string;
+    target_duration_sec?: number;
+    format?: string;
+    autonomy?: "co" | "auto";
+  },
 ) => api<Project>(`/projects/${id}`, { method: "PATCH", body: JSON.stringify(body) });
 export const deleteProject = (id: string) => api<void>(`/projects/${id}`, { method: "DELETE" });
 

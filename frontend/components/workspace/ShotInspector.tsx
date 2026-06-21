@@ -384,7 +384,7 @@ export default function ShotInspector({
                 <ScoreBadge score={active.review.score} verdict={active.review.verdict} />
               )}
               {sec === "direction" && dirty && (
-                <span className="size-1.5 rounded-full bg-run" aria-label="unsaved" />
+                <span className="size-1.5 rounded-full bg-accent" aria-label="unsaved" />
               )}
             </button>
           ))}
@@ -417,14 +417,14 @@ export default function ShotInspector({
               ))}
             </ul>
             {(active.review.continuity_notes ?? []).length > 0 && (
-              <div className="mt-2 rounded-[var(--radius)] border border-run/40 bg-run/5 px-2.5 py-2">
-                <p className="font-mono text-[0.65rem] uppercase tracking-widest text-run">
+              <div className="mt-2 rounded-[var(--radius)] border border-accent/40 bg-accent/5 px-2.5 py-2">
+                <p className="font-mono text-[0.65rem] uppercase tracking-widest text-accent">
                   continuity vs previous shot
                 </p>
                 <ul className="mt-1 space-y-1">
                   {(active.review.continuity_notes ?? []).map((n) => (
                     <li key={n} className="flex gap-2 text-xs text-muted">
-                      <span aria-hidden className="mt-1.5 size-1 shrink-0 rounded-full bg-run" />
+                      <span aria-hidden className="mt-1.5 size-1 shrink-0 rounded-full bg-accent" />
                       {n}
                     </li>
                   ))}
@@ -464,7 +464,7 @@ export default function ShotInspector({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <Eyebrow>Direction</Eyebrow>
             {dirty && !saving && (
-              <span className="font-mono text-[0.65rem] text-run">unsaved changes</span>
+              <span className="font-mono text-[0.65rem] text-accent">unsaved changes</span>
             )}
           </div>
           <div className="mt-3 space-y-3">

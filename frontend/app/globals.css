@@ -2,28 +2,41 @@
 
 /* ───────────────────────── dark cinematic theme ───────────────────────── */
 @theme {
+  /* surface ladder — warm near-black, one lightness notch apart (depth = lightness, not shadow) */
   --color-bg: #0c0a09;
   --color-bg-soft: #14110d;
   --color-panel: #1a1611;
   --color-panel-hi: #221d16;
+  --color-elevated: #2a2319;      /* 4th notch — popovers, menus, dragged shot, active take */
+
   --color-border: #2c261d;
   --color-border-hi: #3d3527;
+  --color-hairline: rgba(244, 239, 230, 0.07);   /* card separation instead of hard borders */
+
   --color-fg: #f4efe6;
   --color-muted: #a59c8c;
-  --color-faint: #928975;
+  --color-faint: #8a8170;         /* tertiary / metadata — slightly dimmer so mono recedes */
 
-  --color-accent: #e2a44f;        /* golden-hour amber */
+  --color-accent: #e2a44f;        /* golden-hour amber — human intent (action, focus, selected) */
   --color-accent-soft: #b9823a;
+  --color-accent-glow: rgba(226, 164, 79, 0.16);  /* ~15% halo */
+
+  --color-live: #6fb3c4;          /* slate-cyan — machine working (render, stream, agent) */
+  --color-live-soft: #4d8595;
+  --color-live-glow: rgba(111, 179, 196, 0.14);
 
   --color-ok: #79c08c;
-  --color-run: #e2a44f;
+  --color-run: #6fb3c4;           /* running / in-progress → the live tone (was amber) */
   --color-fail: #df6f5e;
 
   --font-display: var(--font-display), Georgia, serif;
   --font-sans: var(--font-sans), ui-sans-serif, system-ui;
   --font-mono: var(--font-mono), ui-monospace, monospace;
 
+  --glow-hero: radial-gradient(120% 80% at 50% -10%, #221a10 0%, transparent 55%);
+
   --radius: 0.625rem;
+  --radius-sm: 0.375rem;          /* chips, keycaps, mono pills */
 }
 
 html {
@@ -32,16 +45,13 @@ html {
 }
 
 body {
-  background:
-    radial-gradient(120% 80% at 50% -10%, #1c160f 0%, transparent 55%),
-    var(--color-bg);
+  background: var(--glow-hero), var(--color-bg);
   color: var(--color-fg);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
-  letter-spacing: 0.01em;
 }
 
-/* film grain + vignette atmosphere (applied on a wrapper) */
+/* film grain + vignette atmosphere (applied on a wrapper) — kept subtle, hero-scale */
 .atmosphere::before {
   content: "";
   position: fixed;
@@ -49,7 +59,7 @@ body {
   pointer-events: none;
   z-index: 50;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.4'/%3E%3C/svg%3E");
-  opacity: 0.035;
+  opacity: 0.025;
   mix-blend-mode: screen;
 }
 .atmosphere::after {
@@ -58,11 +68,11 @@ body {
   inset: 0;
   pointer-events: none;
   z-index: 49;
-  background: radial-gradient(130% 100% at 50% 40%, transparent 55%, #00000080 100%);
+  background: radial-gradient(130% 100% at 50% 40%, transparent 55%, #00000066 100%);
 }
 
 .font-display { font-family: var(--font-display); }
-.title { font-family: var(--font-display); letter-spacing: -0.01em; line-height: 0.98; }
+.title { font-family: var(--font-display); letter-spacing: -0.02em; line-height: 0.98; }
 
 .eyebrow {
   font-family: var(--font-mono);
@@ -76,7 +86,7 @@ body {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.rise { animation: rise 0.6s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.rise { animation: rise 0.38s cubic-bezier(0.22, 1, 0.36, 1) both; }
 
 @keyframes shimmer {
   0% { background-position: -200% 0; }

@@ -23,7 +23,10 @@ from app.schemas.api import AnnotationCreate
 
 
 def is_gated(project: Project) -> bool:
-    """MEDIUM and LONG require human sign-off before generation; SHORT does not."""
+    """MEDIUM and LONG require human sign-off before generation; SHORT does not.
+    'auto' autonomy opts out of the manual gate entirely — the budget ceiling still applies."""
+    if getattr(project, "autonomy", "co") == "auto":
+        return False
     return tier_for(project.target_duration_sec) is not Tier.SHORT
 
 

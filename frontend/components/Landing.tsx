@@ -20,12 +20,16 @@ export default function Landing({ onEnter }: { onEnter: () => void }) {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col justify-center px-6 py-16">
-      {/* hero */}
+      {/* hero — the wordmark as a "now showing" title card */}
       <div className="rise">
-        <Eyebrow>AI-native director · brief → rough cut</Eyebrow>
-        <h1 className="title mt-4 text-5xl text-fg sm:text-6xl lg:text-7xl">
-          direct films from a <span className="italic text-accent">brief</span>
+        <Eyebrow>now showing · an AI-native director</Eyebrow>
+        <h1 className="title mt-4 text-6xl lowercase text-fg sm:text-7xl lg:text-8xl">
+          extro<span className="italic text-accent">vid</span>
         </h1>
+        <div className="mt-4 h-px w-full max-w-md bg-gradient-to-r from-accent/60 via-border to-transparent" />
+        <p className="title mt-6 text-3xl text-muted sm:text-4xl">
+          direct a film from a <span className="italic text-accent">brief</span>.
+        </p>
         <p className="mt-5 max-w-xl text-lg leading-relaxed text-muted">
           Not a timeline you fill with footage — a studio that writes the script,
           previsualizes the look, generates each shot with consistent characters, and
