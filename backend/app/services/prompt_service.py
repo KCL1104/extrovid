@@ -99,6 +99,7 @@ def compose_shot_prompt(
     # visible appearance inline (the video model never sees the character bible, so
     # "Alice is walking" must become "Alice (short hair, green dress) is walking").
     subject = perf.get("subject", "")
+    appearance_inlined = False
     if character:
         appearance_bits = []
         desc = (character.description or "").strip()
@@ -110,6 +111,7 @@ def compose_shot_prompt(
         if appearance_bits and idx >= 0 and "(" not in subject:
             end = idx + len(character.name)
             subject = f"{subject[:end]} ({', '.join(appearance_bits)}){subject[end:]}"
+            appearance_inlined = True
     subject_action = f"{subject} {perf.get('action', '')}".strip()
     parts.append(shot.purpose)
     # the planned motion (keyframe contract) is the most precise action description —
@@ -173,8 +175,12 @@ def compose_shot_prompt(
 
     # character constraints (identity memory)
     if character:
-        desc = (character.description or "").strip()
-        parts.append(f"featuring {character.name}" + (f": {desc}" if desc else ""))
+        if appearance_inlined:
+            # appearance already inlined into the subject — don't restate the full desc
+            parts.append(f"featuring {character.name}")
+        else:
+            desc = (character.description or "").strip()
+            parts.append(f"featuring {character.name}" + (f": {desc}" if desc else ""))
         if character.wardrobe_rules:
             parts.append(f"wardrobe: {', '.join(str(r) for r in character.wardrobe_rules[:3])}")
 
@@ -185,8 +191,6 @@ def compose_shot_prompt(
         ending_hint = _TRANSITION_ENDINGS.get(shot.transition or "")
         if ending_hint:
             parts.append(ending_hint)
-
-    parts.append(f"beat: {shot.beat}")
 
     return _join(parts)
 

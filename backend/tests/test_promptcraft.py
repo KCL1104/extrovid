@@ -103,7 +103,8 @@ def test_reference_line_without_character_is_generic():
 def test_bare_shot_still_produces_a_prompt():
     p = compose_shot_prompt(_shot())
     assert "reveal the product" in p
-    assert "beat: hero moment" in p
+    assert "beat:" not in p  # internal planning metadata no longer leaks into the prompt
+    assert p.endswith(".")  # well-formed join
     assert "Avoid" not in p
 
 

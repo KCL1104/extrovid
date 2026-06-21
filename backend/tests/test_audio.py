@@ -4,8 +4,8 @@ import subprocess
 
 from app.models.memory import CharacterProfile
 from app.models.shot import Shot
-from app.providers.audio_factory import MOCK_WAV
-from app.services.audio_service import resolve_voice
+from app.providers.audio_factory import MOCK_WAV, synthesize_speech
+from app.services.audio_service import _tone_instruction, resolve_voice
 from app.services.rough_cut_service import _captions, _Clip, _ff, _probe, render_rough_cut
 
 
@@ -56,6 +56,24 @@ def test_resolve_voice_is_heuristic_and_stable():
     assert resolve_voice(None)["voice"]  # narrator / no-cast → a default voice
     locked = CharacterProfile(project_id="p", name="X", voice_lock={"voice": "Pinned"})
     assert resolve_voice(locked)["voice"] == "Pinned"  # an existing voice_lock wins
+
+
+def test_emotion_becomes_a_tts_tone_instruction():
+    voice = {"instruction": None}
+    anxious = _shot(0, "We have to go.")
+    anxious.performance_spec = {"emotion": "anxious"}
+    assert _tone_instruction(anxious, voice) == "Speak with a anxious tone."
+    assert _tone_instruction(_shot(0, "hi"), voice) is None  # no emotion → no instruction
+    # an explicit voice instruction still applies when there is no emotion
+    assert _tone_instruction(_shot(0, "hi"), {"instruction": "calm narration"}) == "calm narration"
+
+
+async def test_instruction_routes_to_the_instruct_tts_model():
+    """A tone instruction selects the instruct model; without one, the base model."""
+    toned = await synthesize_speech("go", voice="Cherry", instruction="Speak with a tense tone.")
+    assert toned.source_model == "mock:qwen3-tts-instruct-flash"
+    plain = await synthesize_speech("go", voice="Cherry", instruction=None)
+    assert plain.source_model == "mock:qwen3-tts-flash"
 
 
 async def _project_with_dialogue(client) -> tuple[str, list[dict]]:
