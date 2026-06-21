@@ -34,13 +34,18 @@ def _s3_client():
     from botocore.config import Config
 
     s = get_settings()
+    # OSS only accepts virtual-hosted addressing; signature_version stays unset for AWS/Tigris
+    # (SigV4 default) and is "s3" (SigV2) for OSS, whose SigV4 upload path forces chunked encoding.
+    cfg: dict = {"s3": {"addressing_style": "virtual"}}
+    if s.s3_signature_version:
+        cfg["signature_version"] = s.s3_signature_version
     return boto3.client(
         "s3",
         endpoint_url=s.s3_endpoint,
         aws_access_key_id=s.s3_access_key_id,
         aws_secret_access_key=s.s3_secret_access_key,
         region_name=s.s3_region,
-        config=Config(s3={"addressing_style": "virtual"}),
+        config=Config(**cfg),
     )
 
 

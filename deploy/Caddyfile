@@ -1,0 +1,20 @@
+{
+	email {$ACME_EMAIL}
+}
+
+# One domain serves both: API under /api (+ health/docs/oauth) → FastAPI, everything else → Next.js.
+# So NEXT_PUBLIC_API_BASE = https://{$DOMAIN}/api and there is no cross-origin / second cert.
+{$DOMAIN} {
+	@backend path /api/* /health /docs /openapi.json
+	handle @backend {
+		reverse_proxy backend:8000 {
+			# Stream Server-Sent Events immediately — never buffer text/event-stream.
+			# (The app already sends X-Accel-Buffering: no; this is the Caddy-side guarantee.)
+			flush_interval -1
+		}
+	}
+
+	handle {
+		reverse_proxy frontend:3000
+	}
+}
