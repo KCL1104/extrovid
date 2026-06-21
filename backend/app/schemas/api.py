@@ -234,15 +234,29 @@ class PromoteRequest(BaseModel):
     name: str | None = None
 
 
+ReferenceRole = Literal["identity", "outfit", "prop", "scene", "style"]
+
+
 class GenerateShotRequest(BaseModel):
     first_frame_asset_id: str | None = None
     reference_asset_ids: list[str] | None = None  # -> r2v consistency references
+    # optional per-reference role (parallel to reference_asset_ids): what the model should
+    # take from each ref. Surfaces a guidance clause in the prompt; 'identity' is the default.
+    reference_roles: list[ReferenceRole] | None = None
     character_id: str | None = None  # -> r2v using a CharacterProfile's reference frames
     # i2v continuation: seed this shot with the previous shot's last frame
     continue_from_previous: bool = False
     # best-of-N fan-out: submit N takes with the same direction; once all land, the
     # highest-scoring passing take is auto-selected (manual selection always wins)
     num_takes: int = Field(default=1, ge=1, le=4)
+
+    @model_validator(mode="after")
+    def _roles_match_refs(self) -> "GenerateShotRequest":
+        if self.reference_roles is not None and len(self.reference_roles) != len(
+            self.reference_asset_ids or []
+        ):
+            raise ValueError("reference_roles must be the same length as reference_asset_ids")
+        return self
 
 
 class ImportSourceRequest(BaseModel):

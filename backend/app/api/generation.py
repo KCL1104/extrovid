@@ -129,6 +129,7 @@ async def generate_shot(
             num_takes=body.num_takes if body else 1,
             first_frame_asset_id=body.first_frame_asset_id if body else None,
             reference_asset_ids=body.reference_asset_ids if body else None,
+            reference_roles=body.reference_roles if body else None,
             character_id=body.character_id if body else None,
             continue_from_previous=body.continue_from_previous if body else False,
         )

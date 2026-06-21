@@ -72,6 +72,15 @@ _TRANSITION_ENDINGS = {
     ShotTransition.FADE.value: "ending: let the motion settle gently toward the end",
 }
 
+# what a caller-supplied reference image contributes, by role (seedance @-reference concept).
+# 'identity' is already folded into the portrait/subject line, so it has no extra clause.
+_REFERENCE_ROLE_CLAUSE = {
+    "outfit": "the subject's wardrobe matches the reference image",
+    "prop": "the key object/prop matches the reference image",
+    "scene": "the scene and background match the reference image",
+    "style": "the visual style references the reference image",
+}
+
 
 def compose_shot_prompt(
     shot: Shot,
@@ -80,6 +89,7 @@ def compose_shot_prompt(
     style_pack: StylePack | None = None,
     character: CharacterProfile | None = None,
     has_reference_images: bool = False,
+    reference_roles: list[str] | None = None,
     clarifications: list[dict] | None = None,
 ) -> str:
     cam = shot.camera_spec or {}
@@ -94,6 +104,13 @@ def compose_shot_prompt(
             )
         else:
             parts.append("The main subject matches the reference image")
+        # per-reference role clauses tell the model what to take from each non-identity ref
+        for clause in dict.fromkeys(
+            _REFERENCE_ROLE_CLAUSE[r]
+            for r in (reference_roles or [])
+            if r in _REFERENCE_ROLE_CLAUSE
+        ):
+            parts.append(clause)
 
     # action first — what the camera sees. With a cast lock, anchor the subject by
     # visible appearance inline (the video model never sees the character bible, so

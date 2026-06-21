@@ -100,6 +100,22 @@ def test_reference_line_without_character_is_generic():
     assert p.startswith("The main subject matches the reference image")
 
 
+def test_reference_roles_add_guidance_clauses():
+    # roles parallel to reference_asset_ids surface a "what to take" clause per ref
+    p = compose_shot_prompt(_shot(), has_reference_images=True, reference_roles=["outfit", "prop"])
+    assert "wardrobe matches the reference image" in p
+    assert "object/prop matches the reference image" in p
+
+
+def test_reference_roles_identity_and_unknown_are_silent():
+    base = compose_shot_prompt(_shot(), has_reference_images=True)
+    # identity is folded into the subject line; an unknown role is ignored — both byte-identical
+    assert compose_shot_prompt(_shot(), has_reference_images=True, reference_roles=["identity"]) == base
+    assert compose_shot_prompt(_shot(), has_reference_images=True, reference_roles=["bogus"]) == base
+    # default (no roles) is unchanged too
+    assert compose_shot_prompt(_shot(), has_reference_images=True) == base
+
+
 def test_bare_shot_still_produces_a_prompt():
     p = compose_shot_prompt(_shot())
     assert "reveal the product" in p
