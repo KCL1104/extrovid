@@ -631,7 +631,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
   }
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-screen flex-col lg:h-screen lg:overflow-hidden">
       <div aria-live="polite" className="sr-only">
         {announce}
       </div>
@@ -639,7 +639,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
       {/* header — spans the full width above the editing room.
           `relative z-40` while the ⋯ menu is open so its dropdown clears the sticky rails. */}
       <header
-        className={`flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-4 py-3 sm:px-6 ${
+        className={`flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-4 py-3 sm:px-6 ${
           menuOpen ? "relative z-40" : ""
         }`}
       >
@@ -738,17 +738,17 @@ export default function Workspace({ projectId }: { projectId: string }) {
       )}
 
       {/* three-zone editing room: stage map · canvas (hero) · director rail */}
-      <div className="flex flex-1">
+      <div className="flex min-h-0 flex-1">
         {/* stage map (desktop) */}
         {isDesktop && (
-          <aside className="sticky top-0 hidden h-screen w-44 shrink-0 flex-col overflow-y-auto border-r border-border bg-bg-soft/40 px-2 py-4 lg:flex">
+          <aside className="hidden h-full w-44 shrink-0 flex-col overflow-y-auto border-r border-border bg-bg-soft/40 px-2 py-4 lg:flex">
             <p className="eyebrow px-2 pb-2">Stages</p>
             <StageRail stages={stageTabs} active={tab} onSelect={(id) => setTab(id as StageId)} />
           </aside>
         )}
 
         {/* canvas */}
-        <main className="relative flex min-w-0 flex-1 flex-col">
+        <main className="relative flex min-h-0 min-w-0 flex-1 flex-col">
           {/* mobile stage bar */}
           {!isDesktop && (
             <div className="sticky top-0 z-20 border-b border-border bg-bg/85 px-4 py-2 backdrop-blur">
@@ -756,7 +756,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
             </div>
           )}
 
-          <div className="flex-1 px-4 py-6 pb-28 sm:px-6">
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 pb-10 sm:px-6">
             {tab === "plan" && (
               <PlanPanel
                 projectId={projectId}
@@ -868,7 +868,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
         {/* right rail (desktop): the inspected shot, else the persistent director */}
         {isDesktop &&
           (inspectedShot ? (
-            <aside className="sticky top-0 h-screen w-[22rem] shrink-0 overflow-hidden border-l border-border bg-bg xl:w-[26rem]">
+            <aside className="h-full w-[22rem] shrink-0 overflow-hidden border-l border-border bg-bg xl:w-[26rem]">
               {inspectorEl}
             </aside>
           ) : rightCollapsed ? (
@@ -876,14 +876,14 @@ export default function Workspace({ projectId }: { projectId: string }) {
               type="button"
               onClick={() => setRightCollapsed(false)}
               aria-label="Open director"
-              className="sticky top-0 flex h-screen w-10 shrink-0 items-center justify-center border-l border-border bg-bg-soft/40 text-faint transition-colors hover:text-accent"
+              className="flex h-full w-10 shrink-0 items-center justify-center border-l border-border bg-bg-soft/40 text-faint transition-colors hover:text-accent"
             >
               <span className="font-mono text-xs tracking-widest [writing-mode:vertical-rl]">
                 Director
               </span>
             </button>
           ) : (
-            <aside className="sticky top-0 flex h-screen w-[22rem] shrink-0 flex-col overflow-hidden border-l border-border bg-bg xl:w-[26rem]">
+            <aside className="flex h-full w-[22rem] shrink-0 flex-col overflow-hidden border-l border-border bg-bg xl:w-[26rem]">
               <div className="flex shrink-0 items-center justify-end border-b border-border px-2 py-1.5">
                 <button
                   type="button"
