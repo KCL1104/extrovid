@@ -365,6 +365,24 @@ def _scene_tail(shots: list[ShotDTO]) -> str | None:
     return "; ".join(bits) or None
 
 
+def _anchor_subject(shot: ShotDTO, cast_by_name: dict[str, CastMember]) -> str | None:
+    """Repair a cast shot whose `subject` names the character with a BARE name. The planner
+    is told to anchor by appearance, but ~⅓ of shots still emit "Elena" instead of "Elena
+    (cropped hair, grey flight suit)" — and a bare name gives the video model no identity to
+    hold, which is the main source of cross-shot drift. Folds in the cast member's static
+    features as a deterministic safety net. Returns the repaired subject, or None to leave it."""
+    if not shot.character_name:
+        return None
+    member = cast_by_name.get(shot.character_name.strip().lower())
+    if member is None:
+        return None
+    subject = (shot.performance_spec.subject or "").strip()
+    if "(" in subject or "," in subject:
+        return None  # already appearance-anchored
+    feats = member.static_features.strip().rstrip(".")
+    return f"{subject} ({feats})" if subject else f"{member.name} ({feats})"
+
+
 async def run_storyboard(
     script: ScriptDraft,
     visual_briefs: list,
@@ -384,6 +402,7 @@ async def run_storyboard(
     scale = target_duration_sec / total_est
     tier = tier_for(target_duration_sec)  # pacing/ASL guidance scales with overall length
     bible = build_continuity_bible(script.scenes)  # whole-arc context for every scene planner
+    cast_by_name = {c.name.strip().lower(): c for c in (cast or [])}
 
     scenes_out: list[StoryboardScene] = []
     next_order = 0
@@ -416,15 +435,17 @@ async def run_storyboard(
         for shot in sorted(result.output.shots, key=lambda s: s.order):
             local_cam = shot.camera_id or 0
             max_local_cam = max(max_local_cam, local_cam)
-            shots.append(
-                shot.model_copy(
-                    update={
-                        "order": next_order,
-                        "scene_order": scene.order,
-                        "camera_id": camera_offset + local_cam,
-                    }
+            update = {
+                "order": next_order,
+                "scene_order": scene.order,
+                "camera_id": camera_offset + local_cam,
+            }
+            anchored = _anchor_subject(shot, cast_by_name)
+            if anchored is not None:
+                update["performance_spec"] = shot.performance_spec.model_copy(
+                    update={"subject": anchored}
                 )
-            )
+            shots.append(shot.model_copy(update=update))
             next_order += 1
         camera_offset += max_local_cam + 1  # next scene's cameras start past this one's
         scenes_out.append(StoryboardScene(scene_order=scene.order, shots=shots))

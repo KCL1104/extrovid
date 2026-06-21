@@ -127,10 +127,16 @@ and the concept_set MUST carry the exact scene_order you are given. Return only 
 
 _STORYBOARD_BODY = """ For each shot give purpose, duration_sec (>0 and <=15),
 the beat it serves, a camera_spec (shot_size, angle, movement, optional lens), a
-performance_spec (subject, action, optional emotion), preferred_model ('wan2.7-t2v',
-'wan2.7-i2v', or 'wan2.7-r2v' — prefer 'wan2.7-r2v' when the shot features a recurring
-named character whose appearance must stay consistent), at least one acceptance_rule, and
-a transition.
+performance_spec (subject, action, optional emotion), preferred_model — the input ROUTING
+MODE the shot needs (the actual video model is selected server-side): 'wan2.7-t2v' for
+text-only, 'wan2.7-i2v' for a single first-frame seed, or 'wan2.7-r2v' for reference-image
+identity. Prefer 'wan2.7-r2v' when the shot features a recurring named character whose
+appearance must stay consistent. At least one acceptance_rule, and a transition.
+Subject anchoring: the performance_spec `subject` MUST identify any cast character by
+visible appearance, never a bare name — write "Elena (cropped dark hair, grey flight suit)",
+never "Elena" alone. A bare name gives the video model no identity to hold, so the character
+drifts shot to shot. For a non-character subject, name the concrete thing ("a chipped white
+ceramic mug").
 Blocking: for every shot, fill `framing` — where each visible subject sits in the frame,
 the direction they are facing, and what the focus is on (e.g. "Maya on left third, facing
 right, focus on her hands"). When the shot focuses on a character, name the specific body

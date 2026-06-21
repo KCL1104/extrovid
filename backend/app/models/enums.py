@@ -9,7 +9,10 @@ from enum import StrEnum
 
 
 class PreferredModel(StrEnum):
-    """Which Wan2.7 model a shot is routed to. r2v/videoedit reserved for later phases."""
+    """A shot's video ROUTING MODE (legacy ``wan2.7-*`` value names — kept because the value
+    is persisted on Shot.preferred_model). The mode t2v/i2v/r2v/videoedit is mapped to the
+    actual model at generation time by the configured ``video_provider`` (default HappyHorse;
+    see video_factory._resolve_video_model)."""
 
     T2V = "wan2.7-t2v"
     I2V = "wan2.7-i2v"
