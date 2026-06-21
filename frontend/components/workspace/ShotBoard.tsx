@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment } from "react";
+import { Fragment, useState } from "react";
 import { Film, ImageIcon, Link2, Play } from "lucide-react";
 import type { Character, Scene, Shot, ShotVersion } from "@/lib/api";
 import { Button, EmptyState, Eyebrow, Panel, Pill, ScoreBadge, Skeleton, StatusBadge, cn } from "@/components/ui";
@@ -35,6 +35,7 @@ export default function ShotBoard({
   onRenderAll,
   onToggleShotScope,
   onToggleCastScope,
+  onAttachCast,
 }: {
   shots: Shot[];
   scenes: Scene[];
@@ -55,7 +56,9 @@ export default function ShotBoard({
   onRenderAll: (chained: boolean) => void;
   onToggleShotScope: (shotId: string) => void;
   onToggleCastScope: (castId: string) => void;
+  onAttachCast: (shotId: string, castId: string) => void;
 }) {
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
   if (shots.length === 0) {
     return (
       <EmptyState
@@ -169,7 +172,27 @@ export default function ShotBoard({
               {/* horizontal filmstrip — the storyboard reads as a sequence, not a gallery */}
               <div className="flex snap-x gap-4 overflow-x-auto pb-3">
                 {sceneShots.map((shot, i) => (
-                  <div key={shot.id} className="w-44 shrink-0 snap-start sm:w-52">
+                  <div
+                    key={shot.id}
+                    onDragOver={(e) => {
+                      if (e.dataTransfer.types.includes("application/x-extrovid-cast")) {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "copy";
+                        setDragOverId(shot.id);
+                      }
+                    }}
+                    onDragLeave={() => setDragOverId((id) => (id === shot.id ? null : id))}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setDragOverId(null);
+                      const castId = e.dataTransfer.getData("application/x-extrovid-cast");
+                      if (castId) onAttachCast(shot.id, castId);
+                    }}
+                    className={cn(
+                      "w-44 shrink-0 snap-start rounded-[var(--radius)] sm:w-52",
+                      dragOverId === shot.id && "ring-2 ring-accent ring-offset-2 ring-offset-bg",
+                    )}
+                  >
                     <ShotCard
                       shot={shot}
                       versions={versions[shot.id] ?? []}
@@ -177,6 +200,7 @@ export default function ShotBoard({
                       busy={!!busy[shot.id] || generating.includes(shot.id)}
                       selected={scopedShotIds.includes(shot.id)}
                       highlighted={highlightedShotIds.includes(shot.id)}
+                      cast={characters.find((c) => c.id === shot.character_id) ?? null}
                       onOpen={() => onOpen(shot.id)}
                       onGenerate={() => onGenerate(shot.id)}
                       onToggleScope={() => onToggleShotScope(shot.id)}
@@ -200,6 +224,7 @@ function ShotCard({
   busy,
   selected,
   highlighted,
+  cast,
   onOpen,
   onGenerate,
   onToggleScope,
@@ -211,6 +236,7 @@ function ShotCard({
   busy: boolean;
   selected: boolean;
   highlighted: boolean;
+  cast: Character | null;
   onOpen: () => void;
   onGenerate: () => void;
   onToggleScope: () => void;
@@ -324,6 +350,17 @@ function ShotCard({
         <p className="mt-1 font-mono text-[0.7rem] leading-relaxed text-faint">
           {cameraLine(shot)} — {shot.performance_spec.subject}: {shot.performance_spec.action}
         </p>
+        {cast && (
+          <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-border-hi bg-bg-soft px-1.5 py-0.5 text-[0.65rem] text-muted">
+            <span className="size-3.5 shrink-0 overflow-hidden rounded-full bg-panel">
+              {isPlayable(cast.reference_image_urls[0]) && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={cast.reference_image_urls[0]} alt="" className="size-full object-cover" />
+              )}
+            </span>
+            {cast.name}
+          </span>
+        )}
         <StageStrip shot={shot} jobRunning={jobRunning} failed={failed} take={take} />
         <button
           type="button"

@@ -31,6 +31,18 @@ _BACK_VIEW_CUES = (
 )
 _SIDE_VIEW_CUES = ("profile", "side view", "from the side", "facing left", "facing right")
 
+# Always-on negative-prompt floor: artifact classes worth suppressing on every shot regardless
+# of what the planner authored. Appended AFTER authored negatives so authored rules win the cap.
+_BASELINE_NEGATIVES = (
+    "deformed hands",
+    "extra fingers",
+    "extra limbs",
+    "warped face",
+    "flicker",
+    "text artifacts",
+    "watermark",
+)
+
 
 def portrait_view_for(shot: Shot | None) -> str:
     """Return the portrait view ('front' | 'side' | 'back') matching the shot's direction."""
@@ -60,6 +72,20 @@ _TRANSITION_ENDINGS = {
     ShotTransition.FADE.value: "ending: let the motion settle gently toward the end",
 }
 
+# what a caller-supplied reference image contributes, by role (seedance @-reference concept).
+# 'identity' is already folded into the portrait/subject line, so it has no extra clause.
+_REFERENCE_ROLE_CLAUSE = {
+    "outfit": "the subject's wardrobe matches the reference image",
+    "prop": "the key object/prop matches the reference image",
+    "scene": "the scene and background match the reference image",
+    "style": "the visual style references the reference image",
+}
+
+# house defaults when the brief leaves style/lighting blank — keeps even a bare shot from
+# reaching the model with no look direction at all. Authored values always win.
+_DEFAULT_STYLE = "cinematic, shallow depth of field"
+_DEFAULT_LIGHTING = "natural, motivated lighting"
+
 
 def compose_shot_prompt(
     shot: Shot,
@@ -68,6 +94,7 @@ def compose_shot_prompt(
     style_pack: StylePack | None = None,
     character: CharacterProfile | None = None,
     has_reference_images: bool = False,
+    reference_roles: list[str] | None = None,
     clarifications: list[dict] | None = None,
 ) -> str:
     cam = shot.camera_spec or {}
@@ -82,11 +109,19 @@ def compose_shot_prompt(
             )
         else:
             parts.append("The main subject matches the reference image")
+        # per-reference role clauses tell the model what to take from each non-identity ref
+        for clause in dict.fromkeys(
+            _REFERENCE_ROLE_CLAUSE[r]
+            for r in (reference_roles or [])
+            if r in _REFERENCE_ROLE_CLAUSE
+        ):
+            parts.append(clause)
 
     # action first — what the camera sees. With a cast lock, anchor the subject by
     # visible appearance inline (the video model never sees the character bible, so
     # "Alice is walking" must become "Alice (short hair, green dress) is walking").
     subject = perf.get("subject", "")
+    appearance_inlined = False
     if character:
         appearance_bits = []
         desc = (character.description or "").strip()
@@ -98,6 +133,7 @@ def compose_shot_prompt(
         if appearance_bits and idx >= 0 and "(" not in subject:
             end = idx + len(character.name)
             subject = f"{subject[:end]} ({', '.join(appearance_bits)}){subject[end:]}"
+            appearance_inlined = True
     subject_action = f"{subject} {perf.get('action', '')}".strip()
     parts.append(shot.purpose)
     # the planned motion (keyframe contract) is the most precise action description —
@@ -146,11 +182,9 @@ def compose_shot_prompt(
     if style_pack and style_pack.visual_style:
         style_bits.append(style_pack.visual_style)
     style = ", ".join(dict.fromkeys(s for s in style_bits if s))
-    if style:
-        parts.append(f"style: {style}")
+    parts.append(f"style: {style or _DEFAULT_STYLE}")
     lighting = (style_pack.lighting if style_pack else None) or vb.get("lighting")
-    if lighting:
-        parts.append(f"lighting: {lighting}")
+    parts.append(f"lighting: {lighting or _DEFAULT_LIGHTING}")
     palette = (style_pack.palette if style_pack and style_pack.palette else None) or vb.get(
         "palette"
     )
@@ -161,8 +195,12 @@ def compose_shot_prompt(
 
     # character constraints (identity memory)
     if character:
-        desc = (character.description or "").strip()
-        parts.append(f"featuring {character.name}" + (f": {desc}" if desc else ""))
+        if appearance_inlined:
+            # appearance already inlined into the subject — don't restate the full desc
+            parts.append(f"featuring {character.name}")
+        else:
+            desc = (character.description or "").strip()
+            parts.append(f"featuring {character.name}" + (f": {desc}" if desc else ""))
         if character.wardrobe_rules:
             parts.append(f"wardrobe: {', '.join(str(r) for r in character.wardrobe_rules[:3])}")
 
@@ -173,8 +211,6 @@ def compose_shot_prompt(
         ending_hint = _TRANSITION_ENDINGS.get(shot.transition or "")
         if ending_hint:
             parts.append(ending_hint)
-
-    parts.append(f"beat: {shot.beat}")
 
     return _join(parts)
 
@@ -254,6 +290,10 @@ def compose_negative_prompt(
         negatives.extend(str(r) for r in source)
     if character and character.forbidden_changes:
         negatives.extend(str(r) for r in character.forbidden_changes)
-    if not negatives:
+    # authored negatives first, then the always-on baseline; dedupe preserves order so authored
+    # rules stay ahead of the baseline and survive the cap when both are present.
+    negatives.extend(_BASELINE_NEGATIVES)
+    deduped = list(dict.fromkeys(n for n in negatives if n and n.strip()))
+    if not deduped:
         return None
-    return "; ".join(list(dict.fromkeys(negatives))[:6])
+    return "; ".join(deduped[:8])

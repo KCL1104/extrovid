@@ -865,6 +865,9 @@ export default function Workspace({ projectId }: { projectId: string }) {
                     onRenderAll={renderAll}
                     onToggleShotScope={toggleShotScope}
                     onToggleCastScope={toggleCastScope}
+                    onAttachCast={(shotId, castId) =>
+                      void patchShot(shotId, { character_id: castId }).catch(() => {})
+                    }
                   />
                 )}
               </div>

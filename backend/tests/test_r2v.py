@@ -72,6 +72,29 @@ async def test_generate_shot_without_references_stays_t2v_or_i2v(client):
     assert "r2v" not in (v["model"] or "")
 
 
+async def test_reference_roles_surface_a_clause_in_the_prompt(client):
+    pid, frame, shot_ids = await _project_with_images(client)
+    v = (
+        await client.post(
+            f"/api/projects/{pid}/shots/{shot_ids[0]}/generate",
+            json={"reference_asset_ids": [frame["image_asset_id"]], "reference_roles": ["scene"]},
+        )
+    ).json()
+    assert "scene and background match the reference image" in (v["prompt"] or "")
+
+
+async def test_reference_roles_length_must_match_refs(client):
+    pid, frame, shot_ids = await _project_with_images(client)
+    r = await client.post(
+        f"/api/projects/{pid}/shots/{shot_ids[0]}/generate",
+        json={
+            "reference_asset_ids": [frame["image_asset_id"]],
+            "reference_roles": ["scene", "outfit"],  # 2 roles, 1 ref → invalid
+        },
+    )
+    assert r.status_code == 422
+
+
 async def test_delete_project_with_character(client):
     """Deleting a project that has a CharacterProfile must not FK-violate."""
     pid, frame, _ = await _project_with_images(client)

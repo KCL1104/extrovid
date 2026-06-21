@@ -151,10 +151,21 @@ Camera positions: give every shot a `camera_id`. Reuse an existing camera_id whe
 shot could be filmed from the same physical camera position; introduce a new id only if the
 shot size, angle, and focus differ significantly. A camera that performs significant
 movement may not be reused afterward.
+Camera vocabulary: choose camera_spec.movement from a controlled set — static, slow push-in,
+pull-back, pan left/right, tilt up/down, track/follow, orbit, crane, or handheld; reach for an
+advanced move (dolly-zoom/Hitchcock, whip pan, first-person POV) only when the beat motivates
+it. Pick shot_size from ECU, CU, MCU, MS, full, or wide/establishing, and vary the shot size
+across a scene rather than repeating one framing.
 Keyframe contract: for each shot also write first_frame_desc and last_frame_desc as pure
 static snapshots of the opening and closing images, and motion_desc as everything that
 happens between them in professional camera terms, referring to characters by visible
 appearance (never bare names). Classify variation_type small/medium/large.
+Camera consistency: camera_spec.movement and motion_desc MUST agree — never pair a static
+movement with a motion_desc that moves the camera, and never name a move in one that the other
+contradicts.
+One action per shot: keep each shot to a single primary action that is physically plausible
+within its duration_sec; if a beat needs several actions, split it into multiple shots rather
+than overloading one clip.
 Return only the structured object."""
 
 # legacy whole-storyboard prompt (single LLM call across all scenes)

@@ -343,6 +343,7 @@ async def submit_shot(
     auth: AuthCtx,
     first_frame_asset_id: str | None = None,
     reference_asset_ids: list[str] | None = None,
+    reference_roles: list[str] | None = None,
     character_id: str | None = None,
     continue_from_previous: bool = False,
     batch_id: str | None = None,
@@ -371,6 +372,8 @@ async def submit_shot(
         "character_id": character_id,
         "continue_from_previous": continue_from_previous,
     }
+    if reference_roles:
+        gen_params["reference_roles"] = reference_roles
     if batch_id:
         gen_params["batch_id"] = batch_id
         gen_params["batch_size"] = batch_size
@@ -417,6 +420,7 @@ async def _activate_submission(
     params = version.gen_params or {}
     first_frame_asset_id = params.get("first_frame_asset_id")
     reference_asset_ids = params.get("reference_asset_ids")
+    reference_roles = params.get("reference_roles")
     character_id = params.get("character_id")
     continue_from_previous = bool(params.get("continue_from_previous"))
     gen_params = dict(params)
@@ -486,6 +490,7 @@ async def _activate_submission(
         style_pack=style_pack,
         character=character,
         has_reference_images=bool(reference_urls),
+        reference_roles=reference_roles,
         clarifications=brief_row.clarifications if brief_row else None,
     )
     negative_prompt = compose_negative_prompt(
@@ -558,6 +563,7 @@ async def submit_shot_batch(
     num_takes: int,
     first_frame_asset_id: str | None = None,
     reference_asset_ids: list[str] | None = None,
+    reference_roles: list[str] | None = None,
     character_id: str | None = None,
     continue_from_previous: bool = False,
 ) -> list[tuple[ShotVersion, GenerationJob]]:
@@ -579,6 +585,7 @@ async def submit_shot_batch(
                 auth=auth,
                 first_frame_asset_id=first_frame_asset_id,
                 reference_asset_ids=reference_asset_ids,
+                reference_roles=reference_roles,
                 character_id=character_id,
                 continue_from_previous=continue_from_previous,
                 batch_id=batch_id,
@@ -813,6 +820,7 @@ async def retry_job(
         auth=auth,
         first_frame_asset_id=params.get("first_frame_asset_id"),
         reference_asset_ids=params.get("reference_asset_ids"),
+        reference_roles=params.get("reference_roles"),
         character_id=params.get("character_id"),
         continue_from_previous=bool(params.get("continue_from_previous")),
     )

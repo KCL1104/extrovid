@@ -39,10 +39,15 @@ export default function CastChip({
     <button
       type="button"
       onClick={onToggle}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData("application/x-extrovid-cast", character.id);
+        e.dataTransfer.effectAllowed = "copy";
+      }}
       aria-pressed={selected}
-      title={selected ? `Stop directing with ${character.name}` : `Direct with ${character.name}`}
+      title={`${character.name} — click to direct with them, or drag onto a shot to cast`}
       className={cn(
-        "inline-flex items-center gap-2 rounded-full border px-2 py-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+        "inline-flex cursor-grab items-center gap-2 rounded-full border px-2 py-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent active:cursor-grabbing",
         selected
           ? "border-accent/60 bg-accent/10 ring-1 ring-accent/30"
           : "border-border bg-panel hover:border-border-hi",

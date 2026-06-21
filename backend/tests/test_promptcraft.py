@@ -43,7 +43,7 @@ def test_visual_brief_reaches_the_prompt():
     assert "minimal, uncluttered set" in p
     # negatives no longer ride inside the positive prompt — they are a real parameter
     assert "Avoid" not in p
-    assert compose_negative_prompt(visual_brief=VISUAL_BRIEF) == "no harsh shadows"
+    assert "no harsh shadows" in compose_negative_prompt(visual_brief=VISUAL_BRIEF)
 
 
 def test_style_pack_and_character_injection():
@@ -79,15 +79,64 @@ def test_style_pack_and_character_injection():
     assert "no logos other than the brand" in neg
 
 
+def test_negative_prompt_baseline_when_no_authored():
+    # the always-on baseline means a silent planner still gets artifact protection
+    neg = compose_negative_prompt()
+    assert neg is not None
+    assert "watermark" in neg
+
+
+def test_authored_negatives_win_cap():
+    # 8 authored rules fill the cap; the baseline is appended after, so it gets dropped
+    authored = [f"rule-{i}" for i in range(8)]
+    neg = compose_negative_prompt(visual_brief={"negative_rules": authored})
+    for rule in authored:
+        assert rule in neg
+    assert "watermark" not in neg
+
+
 def test_reference_line_without_character_is_generic():
     p = compose_shot_prompt(_shot(), has_reference_images=True)
     assert p.startswith("The main subject matches the reference image")
 
 
+def test_default_style_and_lighting_when_brief_is_empty():
+    p = compose_shot_prompt(_shot())  # bare shot — no brief
+    assert "style: cinematic, shallow depth of field" in p
+    assert "lighting: natural, motivated lighting" in p
+
+
+def test_authored_style_and_lighting_suppress_the_defaults():
+    p = compose_shot_prompt(_shot(), visual_brief=VISUAL_BRIEF)
+    assert "style: modern cinematic" in p  # authored visual_style wins
+    assert "shallow depth of field" not in p  # default style not appended
+    assert "natural, motivated lighting" not in p  # brief has lighting → default suppressed
+
+
+def test_reference_roles_add_guidance_clauses():
+    # roles parallel to reference_asset_ids surface a "what to take" clause per ref
+    p = compose_shot_prompt(_shot(), has_reference_images=True, reference_roles=["outfit", "prop"])
+    assert "wardrobe matches the reference image" in p
+    assert "object/prop matches the reference image" in p
+
+
+def test_reference_roles_identity_and_unknown_are_silent():
+    base = compose_shot_prompt(_shot(), has_reference_images=True)
+
+    def p(roles):
+        return compose_shot_prompt(_shot(), has_reference_images=True, reference_roles=roles)
+
+    # identity is folded into the subject line; an unknown role is ignored — both byte-identical
+    assert p(["identity"]) == base
+    assert p(["bogus"]) == base
+    assert base == compose_shot_prompt(_shot(), has_reference_images=True)  # default unchanged too
+
+
 def test_bare_shot_still_produces_a_prompt():
     p = compose_shot_prompt(_shot())
     assert "reveal the product" in p
-    assert "beat: hero moment" in p
+    assert "beat:" not in p  # internal planning metadata no longer leaks into the prompt
+    assert p.endswith(".")  # well-formed join
     assert "Avoid" not in p
 
 

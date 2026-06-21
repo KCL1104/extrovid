@@ -47,6 +47,14 @@ def resolve_voice(character: CharacterProfile | None) -> dict:
     }
 
 
+def _tone_instruction(shot: Shot, voice: dict) -> str | None:
+    """A per-shot performance emotion becomes a TTS tone instruction (which activates the
+    instruct model). Falls back to the voice's own instruction when no emotion is set;
+    voice_lock still pins the voice identity, this only layers tone per synthesis."""
+    emotion = str((shot.performance_spec or {}).get("emotion") or "").strip()
+    return f"Speak with a {emotion} tone." if emotion else voice.get("instruction")
+
+
 async def synthesize_shot_voiceover(
     session: AsyncSession, project_id: str, shot: Shot, *, auth: AuthCtx
 ) -> ImageAsset:
@@ -71,7 +79,7 @@ async def synthesize_shot_voiceover(
     result = await synthesize_speech(
         line,
         voice=str(voice.get("voice") or _NARRATOR_VOICE),
-        instruction=voice.get("instruction"),
+        instruction=_tone_instruction(shot, voice),
         language=voice.get("language"),
     )
     asset = await store_bytes(
