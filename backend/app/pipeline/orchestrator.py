@@ -559,8 +559,10 @@ async def run_pipeline(
     await emit({"phase": "board", "status": "running", "total": n})
 
     async def _board(index: int, total: int, title: str) -> None:
+        # ``index`` is the count *completed* before this scene starts, so the bar reflects done
+        # work — it no longer hits 100% the moment the last (multi-second) scene merely starts.
         await emit(
-            {"phase": "board", "status": "progress", "index": index + 1, "total": total,
+            {"phase": "board", "status": "progress", "index": index, "total": total,
              "text": f"Breaking down scene {index + 1} of {total}: {title}"}
         )
 
