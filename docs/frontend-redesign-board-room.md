@@ -32,8 +32,10 @@
 > `FunctionModel` and asserts `text_delta`. **Full backend pytest + frontend tsc/eslint/build green.**
 >
 > **Remaining honest note:** the board shows *which shots are working* via the separate job-progress
-> SSE (`/events` → cyan shimmer, P1); a director **step→specific-card** highlight stays deferred
-> (director tool events still carry no `shot_id` — a small future backend add).
+> SSE (`/events` → cyan shimmer, P1). **Update 2026-06-21: the director step→shot-card highlight is
+> now implemented** — `tool_start` carries a `ref` (`shot_id` | `scene_order` | revise `target`), the
+> Director rail forwards it, and the board rings the affected card(s) in slate-cyan while the agent
+> works (`test_director_stream_carries_shot_ref_for_highlighting`).
 >
 > **Committed + pushed 2026-06-21:** `e3619f2` on branch `redesign/board-room` (P1+P2+P3+P3.1).
 >

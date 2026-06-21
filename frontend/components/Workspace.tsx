@@ -97,6 +97,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
   const [scopedShotIds, setScopedShotIds] = useState<string[]>([]); // director scope: shots
   const [scopedCastIds, setScopedCastIds] = useState<string[]>([]); // director scope: cast
   const [boardView, setBoardView] = useState<"board" | "sequence">("board"); // storyboard altitude
+  const [directorRef, setDirectorRef] = useState<Record<string, unknown> | null>(null); // shot the director is touching
   const [assembling, setAssembling] = useState(false);
   const [publishing, setPublishing] = useState<string | null>(null);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
@@ -592,6 +593,25 @@ export default function Workspace({ projectId }: { projectId: string }) {
     }),
   ];
 
+  // the shot card(s) the director is currently acting on — resolved from the live tool ref
+  // (shot_id | scene_order | revise target) so the board can highlight them as it works
+  const directorHighlight: string[] = (() => {
+    const r = directorRef;
+    if (!r) return [];
+    if (typeof r.shot_id === "string") return [r.shot_id];
+    if (typeof r.scene_order === "number") {
+      const so = r.scene_order;
+      return shots.filter((s) => s.scene_order === so).map((s) => s.id);
+    }
+    if (typeof r.target === "string") {
+      if (r.target.startsWith("shot:")) return [r.target.slice(5)];
+      const m = /^(?:scene|visual_brief):(.+)$/.exec(r.target);
+      const scene = m ? scenes.find((sc) => sc.id === m[1]) : undefined;
+      if (scene) return shots.filter((s) => s.scene_order === scene.order).map((s) => s.id);
+    }
+    return [];
+  })();
+
   const director = (
     <DirectorPanel
       projectId={projectId}
@@ -599,6 +619,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
       scopeChips={scopeChips}
       onRemoveChip={removeChip}
       onClearScope={clearScope}
+      onToolRef={setDirectorRef}
     />
   );
 
@@ -837,6 +858,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
                     budgetUsd={project?.budget_usd}
                     scopedShotIds={scopedShotIds}
                     scopedCastIds={scopedCastIds}
+                    highlightedShotIds={directorHighlight}
                     onOpen={setInspected}
                     onGenerate={(shotId) => genShot(shotId)}
                     onKeyframes={genAllKeyframes}

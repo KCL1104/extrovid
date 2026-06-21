@@ -28,6 +28,7 @@ export default function ShotBoard({
   budgetUsd,
   scopedShotIds,
   scopedCastIds,
+  highlightedShotIds,
   onOpen,
   onGenerate,
   onKeyframes,
@@ -47,6 +48,7 @@ export default function ShotBoard({
   budgetUsd?: number | null;
   scopedShotIds: string[];
   scopedCastIds: string[];
+  highlightedShotIds: string[];
   onOpen: (shotId: string) => void;
   onGenerate: (shotId: string) => void;
   onKeyframes: () => void;
@@ -174,6 +176,7 @@ export default function ShotBoard({
                       aspect={aspect}
                       busy={!!busy[shot.id] || generating.includes(shot.id)}
                       selected={scopedShotIds.includes(shot.id)}
+                      highlighted={highlightedShotIds.includes(shot.id)}
                       onOpen={() => onOpen(shot.id)}
                       onGenerate={() => onGenerate(shot.id)}
                       onToggleScope={() => onToggleShotScope(shot.id)}
@@ -196,6 +199,7 @@ function ShotCard({
   aspect,
   busy,
   selected,
+  highlighted,
   onOpen,
   onGenerate,
   onToggleScope,
@@ -206,6 +210,7 @@ function ShotCard({
   aspect: string;
   busy: boolean;
   selected: boolean;
+  highlighted: boolean;
   onOpen: () => void;
   onGenerate: () => void;
   onToggleScope: () => void;
@@ -219,7 +224,11 @@ function ShotCard({
   const finishedCount = versions.filter((v) => v.output_asset_id).length;
 
   return (
-    <Panel selected={selected} className="rise overflow-hidden" style={{ animationDelay: `${delay}ms` }}>
+    <Panel
+      selected={selected && !highlighted}
+      className={cn("rise overflow-hidden", highlighted && "ring-2 ring-live")}
+      style={{ animationDelay: `${delay}ms` }}
+    >
       <button
         onClick={(e) => {
           // ⌘/Ctrl/Shift-click scopes the director to this shot; a plain click opens the inspector
