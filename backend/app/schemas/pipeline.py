@@ -228,9 +228,25 @@ class SceneVisualPlan(BaseModel):
 
 
 class CameraSpec(BaseModel):
-    shot_size: str = Field(..., min_length=1, description="ECU/CU/MS/WS/EWS, etc.")
-    angle: str = Field(..., min_length=1, description="eye-level/low/high/dutch, etc.")
-    movement: str = Field(..., min_length=1, description="static/pan/tilt/dolly/handheld, etc.")
+    shot_size: str = Field(
+        ...,
+        min_length=1,
+        description="ECU, CU, MCU, MS, full, or wide/establishing (extreme close-up → wide).",
+    )
+    angle: str = Field(
+        ...,
+        min_length=1,
+        description="eye-level, low, high, dutch, overhead/bird's-eye, or POV.",
+    )
+    movement: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "One camera move from: static, slow push-in, pull-back, pan left/right, "
+            "tilt up/down, track/follow, orbit, crane, handheld; advanced when motivated: "
+            "dolly-zoom (Hitchcock), whip pan, first-person POV."
+        ),
+    )
     lens: str | None = None
 
 
@@ -325,9 +341,11 @@ class ShotDTO(BaseModel):
     motion_desc: str | None = Field(
         default=None,
         description=(
-            "Everything that happens between the first and last frame, in professional "
-            "camera terms (dolly, pan, push-in). Refer to characters by visible "
-            "appearance, never bare name: 'Alice (short hair, green dress) is walking'."
+            "Everything that happens between the first and last frame, using the same "
+            "controlled camera vocabulary as camera_spec.movement (push-in, pull-back, pan, "
+            "tilt, track, orbit, crane, dolly-zoom, whip pan, POV) and staying consistent "
+            "with it. Refer to characters by visible appearance, never bare name: "
+            "'Alice (short hair, green dress) is walking'."
         ),
     )
     variation_type: Literal["small", "medium", "large"] = Field(

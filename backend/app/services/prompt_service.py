@@ -31,6 +31,18 @@ _BACK_VIEW_CUES = (
 )
 _SIDE_VIEW_CUES = ("profile", "side view", "from the side", "facing left", "facing right")
 
+# Always-on negative-prompt floor: artifact classes worth suppressing on every shot regardless
+# of what the planner authored. Appended AFTER authored negatives so authored rules win the cap.
+_BASELINE_NEGATIVES = (
+    "deformed hands",
+    "extra fingers",
+    "extra limbs",
+    "warped face",
+    "flicker",
+    "text artifacts",
+    "watermark",
+)
+
 
 def portrait_view_for(shot: Shot | None) -> str:
     """Return the portrait view ('front' | 'side' | 'back') matching the shot's direction."""
@@ -254,6 +266,10 @@ def compose_negative_prompt(
         negatives.extend(str(r) for r in source)
     if character and character.forbidden_changes:
         negatives.extend(str(r) for r in character.forbidden_changes)
-    if not negatives:
+    # authored negatives first, then the always-on baseline; dedupe preserves order so authored
+    # rules stay ahead of the baseline and survive the cap when both are present.
+    negatives.extend(_BASELINE_NEGATIVES)
+    deduped = list(dict.fromkeys(n for n in negatives if n and n.strip()))
+    if not deduped:
         return None
-    return "; ".join(list(dict.fromkeys(negatives))[:6])
+    return "; ".join(deduped[:8])

@@ -43,7 +43,7 @@ def test_visual_brief_reaches_the_prompt():
     assert "minimal, uncluttered set" in p
     # negatives no longer ride inside the positive prompt — they are a real parameter
     assert "Avoid" not in p
-    assert compose_negative_prompt(visual_brief=VISUAL_BRIEF) == "no harsh shadows"
+    assert "no harsh shadows" in compose_negative_prompt(visual_brief=VISUAL_BRIEF)
 
 
 def test_style_pack_and_character_injection():
@@ -77,6 +77,22 @@ def test_style_pack_and_character_injection():
     assert "never change her hair" in neg
     assert "no harsh shadows" in neg
     assert "no logos other than the brand" in neg
+
+
+def test_negative_prompt_baseline_when_no_authored():
+    # the always-on baseline means a silent planner still gets artifact protection
+    neg = compose_negative_prompt()
+    assert neg is not None
+    assert "watermark" in neg
+
+
+def test_authored_negatives_win_cap():
+    # 8 authored rules fill the cap; the baseline is appended after, so it gets dropped
+    authored = [f"rule-{i}" for i in range(8)]
+    neg = compose_negative_prompt(visual_brief={"negative_rules": authored})
+    for rule in authored:
+        assert rule in neg
+    assert "watermark" not in neg
 
 
 def test_reference_line_without_character_is_generic():

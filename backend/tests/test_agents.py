@@ -6,8 +6,20 @@ from pydantic_ai.messages import ModelResponse, ToolCallPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from app.agents.brief_agent import brief_agent
+from app.agents.prompts import SCENE_STORYBOARD_SYSTEM, STORYBOARD_SYSTEM
 from app.agents.storyboard_agent import storyboard_agent
 from app.schemas.pipeline import BriefInput, Storyboard
+
+
+def test_storyboard_prompts_carry_camera_vocabulary_and_guardrails():
+    # both the per-scene and legacy storyboard prompts share _STORYBOARD_BODY
+    for sys in (SCENE_STORYBOARD_SYSTEM, STORYBOARD_SYSTEM):
+        assert "Camera vocabulary:" in sys
+        assert "orbit" in sys and "dolly-zoom" in sys and "establishing" in sys
+        assert "Camera consistency:" in sys
+        assert "One action per shot:" in sys
+        # negatives are a separate parameter — keep the avoid-word out of positive guidance
+        assert "Avoid" not in sys
 
 
 def _sb_args(n_shots: int, target: int) -> dict:
