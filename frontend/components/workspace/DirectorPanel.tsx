@@ -29,12 +29,14 @@ export default function DirectorPanel({
   scopeChips = [],
   onRemoveChip,
   onClearScope,
+  onToolRef,
 }: {
   projectId: string;
   onChanged: () => Promise<void> | void;
   scopeChips?: { key: string; label: string; ref: string }[];
   onRemoveChip?: (key: string) => void;
   onClearScope?: () => void;
+  onToolRef?: (ref: Record<string, unknown> | null) => void; // which shot/scene the live tool touches
 }) {
   const [items, setItems] = useState<ChatItem[]>([]);
   const [message, setMessage] = useState("");
@@ -82,6 +84,7 @@ export default function DirectorPanel({
           if (e.type === "tool_start" && typeof e.tool === "string") {
             const tool = e.tool;
             setLiveSteps((s) => [...s, { id: `${tool}-${s.length}`, tool, status: "running" }]);
+            onToolRef?.((e.ref ?? null) as Record<string, unknown> | null);
           } else if (e.type === "tool_result" && typeof e.tool === "string") {
             const tool = e.tool;
             const isErr = e.error === true;
@@ -102,6 +105,7 @@ export default function DirectorPanel({
           } else if (e.type === "error") {
             setError(String(e.message ?? "stream error"));
           } else if (e.type === "done") {
+            onToolRef?.(null);
             const actions = (e.actions as DirectorAction[]) ?? [];
             setItems((xs) => [
               ...xs,
@@ -127,6 +131,7 @@ export default function DirectorPanel({
       setSending(false);
       setLiveSteps([]);
       setStreamReply("");
+      onToolRef?.(null);
     }
   }
 

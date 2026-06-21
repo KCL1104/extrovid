@@ -1,5 +1,7 @@
 """Director chat: one conversational agent that operates the production via tools."""
 
+import json
+
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic_ai import Agent
@@ -146,8 +148,29 @@ async def director_stream(
                         async with node.stream(run.ctx) as stream:
                             async for event in stream:
                                 if isinstance(event, FunctionToolCallEvent):
+                                    # carry which shot/scene the call touches so the board can
+                                    # highlight the affected card(s) as the director works
+                                    raw = event.part.args
+                                    if isinstance(raw, str):
+                                        try:
+                                            raw = json.loads(raw)
+                                        except (ValueError, TypeError):
+                                            raw = {}
+                                    ref = (
+                                        {
+                                            k: raw[k]
+                                            for k in ("shot_id", "scene_order", "target")
+                                            if k in raw
+                                        }
+                                        if isinstance(raw, dict)
+                                        else {}
+                                    )
                                     yield event_bus.sse(
-                                        {"type": "tool_start", "tool": event.part.tool_name}
+                                        {
+                                            "type": "tool_start",
+                                            "tool": event.part.tool_name,
+                                            "ref": ref,
+                                        }
                                     )
                                 elif isinstance(event, FunctionToolResultEvent):
                                     part = event.part

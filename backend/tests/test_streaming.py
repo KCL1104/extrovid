@@ -68,6 +68,44 @@ async def test_director_stream_persists_the_turn(client):
     assert turns[-1]["role"] == "assistant"
 
 
+def _scripted_shot_review() -> FunctionModel:
+    """Calls get_review on a specific shot, then replies — so tool_start carries a shot ref."""
+    fstate = {"n": 0}
+
+    def fn(messages, info):
+        fstate["n"] += 1
+        if fstate["n"] == 1:
+            return ModelResponse(
+                parts=[ToolCallPart(tool_name="get_review", args={"shot_id": "shot-xyz"})]
+            )
+        return ModelResponse(parts=[TextPart(content="No take yet.")])
+
+    sstate = {"n": 0}
+
+    async def stream_fn(messages, info):
+        sstate["n"] += 1
+        if sstate["n"] == 1:
+            yield {0: DeltaToolCall(name="get_review", json_args='{"shot_id": "shot-xyz"}', tool_call_id="c1")}
+        else:
+            yield "No take yet."
+
+    return FunctionModel(fn, stream_function=stream_fn)
+
+
+async def test_director_stream_carries_shot_ref_for_highlighting(client):
+    pid = await _project(client)
+    body = ""
+    with director_agent.override(model=_scripted_shot_review()):
+        async with client.stream(
+            "POST", f"/api/projects/{pid}/director/stream", json={"message": "review the shot"}
+        ) as resp:
+            async for chunk in resp.aiter_text():
+                body += chunk
+    assert "tool_start" in body
+    assert "get_review" in body
+    assert "shot-xyz" in body  # the shot ref rides on tool_start so the board can highlight it
+
+
 async def test_plan_stream_emits_stage_events_then_done_and_persists(client):
     pid = (await client.post("/api/projects", json={"title": "Plan stream"})).json()["id"]
     body = ""
