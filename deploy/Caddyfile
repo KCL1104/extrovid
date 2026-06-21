@@ -2,14 +2,13 @@
 	email {$ACME_EMAIL}
 }
 
-# One domain serves both: API under /api (+ health/docs/oauth) → FastAPI, everything else → Next.js.
-# So NEXT_PUBLIC_API_BASE = https://{$DOMAIN}/api and there is no cross-origin / second cert.
-{$DOMAIN} {
+# SITE_ADDRESS = ":80" → plain HTTP (no domain). A hostname → Caddy auto-provisions Let's Encrypt TLS.
+# One site serves both: /api (+ health/docs/oauth) → FastAPI, everything else → Next.js.
+{$SITE_ADDRESS} {
 	@backend path /api/* /health /docs /openapi.json
 	handle @backend {
 		reverse_proxy backend:8000 {
 			# Stream Server-Sent Events immediately — never buffer text/event-stream.
-			# (The app already sends X-Accel-Buffering: no; this is the Caddy-side guarantee.)
 			flush_interval -1
 		}
 	}

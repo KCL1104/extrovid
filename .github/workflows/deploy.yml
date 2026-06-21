@@ -1,17 +1,13 @@
-name: Build & deploy to Alibaba Cloud
+name: Deploy to Alibaba Cloud (ECS)
 
-# Builds both images, pushes to ACR (Singapore), then SSHes into the ECS box to pull & restart.
-# Required GitHub repository secrets:
-#   ACR_REGISTRY        e.g. registry-intl.ap-southeast-1.aliyuncs.com   (internet endpoint)
-#   ACR_NAMESPACE       e.g. extrovid
-#   ACR_USERNAME        ACR access username
-#   ACR_PASSWORD        ACR access password
-#   NEXT_PUBLIC_API_BASE  e.g. https://app.example.com/api  (baked into the frontend bundle)
-#   SSH_HOST            ECS public IP / EIP
-#   SSH_USER            e.g. root or a deploy user
-#   SSH_KEY             private key (PEM) authorized on the box
-#   SSH_PORT            (optional) defaults to 22
-#   DEPLOY_PATH         (optional) defaults to /opt/extrovid
+# Syncs the repo to the ECS box over SSH and rebuilds the Docker stack there.
+# No registry needed — images build on the box from source.
+# Required GitHub secrets:
+#   SSH_HOST   ECS public IP / EIP
+#   SSH_USER   e.g. root
+#   SSH_KEY    private key (PEM/OpenSSH) authorized on the box
+#   SSH_PORT   (optional) defaults to 22
+# The box keeps its own deploy/.env (gitignored, never synced).
 
 on:
   push:
@@ -25,59 +21,33 @@ on:
 
 concurrency:
   group: deploy-${{ github.ref }}
-  # false: never cancel an in-flight SSH deploy mid 'docker compose up' (single box, no rollback).
+  # false: never cancel an in-flight deploy mid 'docker compose up' (single box, no rollback).
   cancel-in-progress: false
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: docker/setup-buildx-action@v3
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -p "${{ secrets.SSH_PORT || 22 }}" -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
 
-      - name: Log in to ACR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ secrets.ACR_REGISTRY }}
-          username: ${{ secrets.ACR_USERNAME }}
-          password: ${{ secrets.ACR_PASSWORD }}
+      - name: Sync source to ECS
+        run: |
+          rsync -az --delete \
+            --exclude '.git' --exclude 'node_modules' --exclude '.next' \
+            --exclude 'deploy/.env' --exclude '__pycache__' --exclude '.venv' \
+            --exclude '.pytest_cache' --exclude '.ruff_cache' \
+            -e "ssh -p ${{ secrets.SSH_PORT || 22 }} -i ~/.ssh/id_ed25519" \
+            ./ "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/opt/extrovid/app/"
 
-      - name: Build & push backend
-        uses: docker/build-push-action@v6
-        with:
-          context: ./backend
-          push: true
-          tags: |
-            ${{ secrets.ACR_REGISTRY }}/${{ secrets.ACR_NAMESPACE }}/backend:${{ github.sha }}
-            ${{ secrets.ACR_REGISTRY }}/${{ secrets.ACR_NAMESPACE }}/backend:latest
-          cache-from: type=gha,scope=backend
-          cache-to: type=gha,mode=max,scope=backend
-
-      - name: Build & push frontend
-        uses: docker/build-push-action@v6
-        with:
-          context: ./frontend
-          push: true
-          build-args: |
-            NEXT_PUBLIC_API_BASE=${{ secrets.NEXT_PUBLIC_API_BASE }}
-          tags: |
-            ${{ secrets.ACR_REGISTRY }}/${{ secrets.ACR_NAMESPACE }}/frontend:${{ github.sha }}
-            ${{ secrets.ACR_REGISTRY }}/${{ secrets.ACR_NAMESPACE }}/frontend:latest
-          cache-from: type=gha,scope=frontend
-          cache-to: type=gha,mode=max,scope=frontend
-
-      - name: Deploy on ECS over SSH
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT || 22 }}
-          script: |
-            set -e
-            cd ${{ secrets.DEPLOY_PATH || '/opt/extrovid' }}
-            export TAG=${{ github.sha }}
-            docker compose pull
-            docker compose up -d --remove-orphans
-            docker image prune -f
+      - name: Build & restart on ECS
+        run: |
+          ssh -p "${{ secrets.SSH_PORT || 22 }}" -i ~/.ssh/id_ed25519 \
+            "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" \
+            'cd /opt/extrovid/app/deploy && docker compose up -d --build --remove-orphans && docker image prune -f'
