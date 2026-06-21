@@ -32,9 +32,9 @@ export default function Shell({ children }: { children: ReactNode }) {
   }, [open]);
 
   return (
-    <div className="min-h-screen lg:flex">
+    <div className="flex h-dvh flex-col overflow-hidden lg:flex-row">
       {/* mobile top bar (hidden once the permanent sidebar shows at lg) */}
-      <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-border bg-bg/80 px-4 py-3 backdrop-blur lg:hidden">
+      <header className="z-30 flex shrink-0 items-center gap-3 border-b border-border bg-bg/80 px-4 py-3 backdrop-blur lg:hidden">
         <button
           type="button"
           onClick={() => setOpen(true)}
@@ -72,9 +72,9 @@ export default function Shell({ children }: { children: ReactNode }) {
 
       <Sidebar open={open} onClose={() => setOpen(false)} />
 
-      {/* desktop: the content area is the scroll owner (viewport-tall); the sidebar stays fixed.
-          mobile: natural page scroll. */}
-      <div className="min-w-0 flex-1 lg:h-screen lg:overflow-y-auto">{children}</div>
+      {/* the content area is the scroll owner — same height as the side nav, fixed; it scrolls
+          internally so the shell (sidebar + headers) never moves */}
+      <div className="min-w-0 flex-1 overflow-y-auto">{children}</div>
 
       <CommandPalette />
     </div>

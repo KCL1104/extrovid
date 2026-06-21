@@ -631,7 +631,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
   }
 
   return (
-    <div className="flex min-h-screen flex-col lg:h-full lg:overflow-hidden">
+    <div className="flex h-full flex-col overflow-hidden">
       <div aria-live="polite" className="sr-only">
         {announce}
       </div>
