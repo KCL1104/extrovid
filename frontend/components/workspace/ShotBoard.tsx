@@ -4,6 +4,7 @@ import { Fragment } from "react";
 import { Film, ImageIcon, Link2, Play } from "lucide-react";
 import type { Character, Scene, Shot, ShotVersion } from "@/lib/api";
 import { Button, EmptyState, Eyebrow, Panel, Pill, ScoreBadge, Skeleton, StatusBadge, cn } from "@/components/ui";
+import CastChip from "@/components/workspace/CastChip";
 import {
   aspectClass,
   cameraLine,
@@ -22,10 +23,14 @@ export default function ShotBoard({
   busy,
   generating,
   batchBusy,
+  scopedShotIds,
+  scopedCastIds,
   onOpen,
   onGenerate,
   onKeyframes,
   onRenderAll,
+  onToggleShotScope,
+  onToggleCastScope,
 }: {
   shots: Shot[];
   scenes: Scene[];
@@ -35,10 +40,14 @@ export default function ShotBoard({
   busy: Record<string, boolean>;
   generating: string[];
   batchBusy: string | null;
+  scopedShotIds: string[];
+  scopedCastIds: string[];
   onOpen: (shotId: string) => void;
   onGenerate: (shotId: string) => void;
   onKeyframes: () => void;
   onRenderAll: (chained: boolean) => void;
+  onToggleShotScope: (shotId: string) => void;
+  onToggleCastScope: (castId: string) => void;
 }) {
   if (shots.length === 0) {
     return (
@@ -113,24 +122,18 @@ export default function ShotBoard({
         )}
       </div>
       {characters.length > 0 && (
-        <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="mb-4 flex flex-wrap items-center gap-2">
           <Eyebrow>Cast</Eyebrow>
           {characters.map((c) => (
-            <span
+            <CastChip
               key={c.id}
-              className="inline-flex items-center gap-2 rounded-full border border-border bg-panel px-2 py-1"
-            >
-              <span className="size-6 shrink-0 overflow-hidden rounded-full bg-bg-soft">
-                {isPlayable(c.reference_image_urls[0]) && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={c.reference_image_urls[0]} alt={c.name} className="size-full object-cover" />
-                )}
-              </span>
-              <span className="pr-1 text-xs text-fg">{c.name}</span>
-            </span>
+              character={c}
+              selected={scopedCastIds.includes(c.id)}
+              onToggle={() => onToggleCastScope(c.id)}
+            />
           ))}
           <span className="text-[0.7rem] text-faint">
-            Attach cast in the shot inspector for cross-shot consistency (r2v).
+            Click a cast member to direct with them (adds @{"{name}"} to the director).
           </span>
         </div>
       )}
@@ -164,8 +167,10 @@ export default function ShotBoard({
                       versions={versions[shot.id] ?? []}
                       aspect={aspect}
                       busy={!!busy[shot.id] || generating.includes(shot.id)}
+                      selected={scopedShotIds.includes(shot.id)}
                       onOpen={() => onOpen(shot.id)}
                       onGenerate={() => onGenerate(shot.id)}
+                      onToggleScope={() => onToggleShotScope(shot.id)}
                       delay={i * 40}
                     />
                   </div>
@@ -184,16 +189,20 @@ function ShotCard({
   versions,
   aspect,
   busy,
+  selected,
   onOpen,
   onGenerate,
+  onToggleScope,
   delay,
 }: {
   shot: Shot;
   versions: ShotVersion[];
   aspect: string;
   busy: boolean;
+  selected: boolean;
   onOpen: () => void;
   onGenerate: () => void;
+  onToggleScope: () => void;
   delay: number;
 }) {
   const take = chosenTake(versions);
@@ -204,9 +213,17 @@ function ShotCard({
   const finishedCount = versions.filter((v) => v.output_asset_id).length;
 
   return (
-    <Panel className="rise overflow-hidden" style={{ animationDelay: `${delay}ms` }}>
+    <Panel selected={selected} className="rise overflow-hidden" style={{ animationDelay: `${delay}ms` }}>
       <button
-        onClick={onOpen}
+        onClick={(e) => {
+          // ⌘/Ctrl/Shift-click scopes the director to this shot; a plain click opens the inspector
+          if (e.metaKey || e.ctrlKey || e.shiftKey) {
+            e.preventDefault();
+            onToggleScope();
+          } else {
+            onOpen();
+          }
+        }}
         aria-label={`Open shot ${shot.order + 1}: ${shot.purpose}`}
         className={cn(
           "group relative block w-full bg-bg-soft text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent",
@@ -293,6 +310,18 @@ function ShotCard({
           {cameraLine(shot)} — {shot.performance_spec.subject}: {shot.performance_spec.action}
         </p>
         <StageStrip shot={shot} jobRunning={jobRunning} failed={failed} take={take} />
+        <button
+          type="button"
+          onClick={onToggleScope}
+          aria-pressed={selected}
+          title={selected ? "Remove from director scope" : "Direct this shot — adds @shot to the director"}
+          className={cn(
+            "mt-3 inline-flex items-center gap-1 rounded-[var(--radius)] px-1.5 py-1 font-mono text-[0.65rem] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+            selected ? "text-accent" : "text-faint hover:text-fg",
+          )}
+        >
+          ◎ {selected ? "directing" : "direct"}
+        </button>
         {!take && !jobRunning && !failed && (
           <div className="mt-3">
             <Button variant="primary" onClick={onGenerate} className="w-full justify-center">

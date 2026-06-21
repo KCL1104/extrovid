@@ -92,6 +92,8 @@ export default function Workspace({ projectId }: { projectId: string }) {
   const [inspected, setInspected] = useState<string | null>(null);
   const [directorOpen, setDirectorOpen] = useState(false); // mobile director drawer
   const [rightCollapsed, setRightCollapsed] = useState(false); // desktop right rail collapse
+  const [scopedShotIds, setScopedShotIds] = useState<string[]>([]); // director scope: shots
+  const [scopedCastIds, setScopedCastIds] = useState<string[]>([]); // director scope: cast
   const [assembling, setAssembling] = useState(false);
   const [publishing, setPublishing] = useState<string | null>(null);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
@@ -470,6 +472,29 @@ export default function Workspace({ projectId }: { projectId: string }) {
     }
   }
 
+  // ── director scope (select-to-scope) ──────────────────────────────────────
+  // toggling always surfaces the director (close the inspector, expand the rail) so the
+  // freshly-pinned chip is visible; sending an instruction clears the scope.
+  function toggleShotScope(id: string) {
+    setInspected(null);
+    setRightCollapsed(false);
+    setScopedShotIds((xs) => (xs.includes(id) ? xs.filter((x) => x !== id) : [...xs, id]));
+  }
+  function toggleCastScope(id: string) {
+    setInspected(null);
+    setRightCollapsed(false);
+    setScopedCastIds((xs) => (xs.includes(id) ? xs.filter((x) => x !== id) : [...xs, id]));
+  }
+  function clearScope() {
+    setScopedShotIds([]);
+    setScopedCastIds([]);
+  }
+  function removeChip(key: string) {
+    const [kind, id] = key.split(":");
+    if (kind === "shot") setScopedShotIds((xs) => xs.filter((x) => x !== id));
+    else setScopedCastIds((xs) => xs.filter((x) => x !== id));
+  }
+
   // ── derived ──────────────────────────────────────────────────────────────
 
   const planned = shots.length > 0;
@@ -551,7 +576,28 @@ export default function Workspace({ projectId }: { projectId: string }) {
     />
   ) : null;
 
-  const director = <DirectorPanel projectId={projectId} onChanged={loadAll} />;
+  const scopeChips: { key: string; label: string; ref: string }[] = [
+    ...scopedShotIds.flatMap((id) => {
+      const s = shots.find((x) => x.id === id);
+      return s
+        ? [{ key: `shot:${id}`, label: `@shot ${s.order + 1}`, ref: `shot ${s.order + 1}` }]
+        : [];
+    }),
+    ...scopedCastIds.flatMap((id) => {
+      const c = characters.find((x) => x.id === id);
+      return c ? [{ key: `cast:${id}`, label: `@${c.name}`, ref: `the character ${c.name}` }] : [];
+    }),
+  ];
+
+  const director = (
+    <DirectorPanel
+      projectId={projectId}
+      onChanged={loadAll}
+      scopeChips={scopeChips}
+      onRemoveChip={removeChip}
+      onClearScope={clearScope}
+    />
+  );
 
   // initial load / fatal error states
   if (loading && !project) {
@@ -748,10 +794,14 @@ export default function Workspace({ projectId }: { projectId: string }) {
                 busy={busy}
                 generating={generating}
                 batchBusy={batchBusy}
+                scopedShotIds={scopedShotIds}
+                scopedCastIds={scopedCastIds}
                 onOpen={setInspected}
                 onGenerate={(shotId) => genShot(shotId)}
                 onKeyframes={genAllKeyframes}
                 onRenderAll={renderAll}
+                onToggleShotScope={toggleShotScope}
+                onToggleCastScope={toggleCastScope}
               />
             )}
             {tab === "cut" && (

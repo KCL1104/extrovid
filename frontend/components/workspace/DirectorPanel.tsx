@@ -26,9 +26,15 @@ const SUGGESTIONS = [
 export default function DirectorPanel({
   projectId,
   onChanged,
+  scopeChips = [],
+  onRemoveChip,
+  onClearScope,
 }: {
   projectId: string;
   onChanged: () => Promise<void> | void;
+  scopeChips?: { key: string; label: string; ref: string }[];
+  onRemoveChip?: (key: string) => void;
+  onClearScope?: () => void;
 }) {
   const [items, setItems] = useState<ChatItem[]>([]);
   const [message, setMessage] = useState("");
@@ -50,13 +56,19 @@ export default function DirectorPanel({
   }, [items.length, sending, liveSteps.length, streamReply.length]);
 
   async function send(text?: string) {
-    const content = (text ?? message).trim();
-    if (!content || sending) return;
+    const raw = (text ?? message).trim();
+    if (!raw || sending) return;
+    // scope chips (selected shots / cast) ride into the instruction as a natural-language prefix
+    const prefix = scopeChips.length
+      ? `Regarding ${scopeChips.map((c) => c.ref).join(", ")}: `
+      : "";
+    const content = prefix + raw;
     setMessage("");
     setError(null);
     setSending(true);
     setLiveSteps([]);
     setStreamReply("");
+    onClearScope?.();
     setItems((xs) => [
       ...xs,
       { id: `local-${Date.now()}`, role: "user", content, created_at: "" },
@@ -188,6 +200,34 @@ export default function DirectorPanel({
       </div>
 
       {error && <p className="mt-2 font-mono text-[0.75rem] text-fail">{error}</p>}
+
+      {scopeChips.length > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {scopeChips.map((c) => (
+            <span
+              key={c.key}
+              className="inline-flex items-center gap-1 rounded-full border border-accent/40 bg-accent/10 px-2 py-0.5 font-mono text-[0.65rem] text-accent"
+            >
+              {c.label}
+              <button
+                type="button"
+                onClick={() => onRemoveChip?.(c.key)}
+                aria-label={`Remove ${c.label}`}
+                className="text-accent/70 transition-colors hover:text-accent"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+          <button
+            type="button"
+            onClick={() => onClearScope?.()}
+            className="font-mono text-[0.6rem] text-faint transition-colors hover:text-fg"
+          >
+            clear
+          </button>
+        </div>
+      )}
 
       <div className="mt-3 flex items-center gap-2">
         <label className="sr-only" htmlFor="director-chat-input">

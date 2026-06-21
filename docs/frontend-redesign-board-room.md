@@ -22,14 +22,31 @@
 > genuinely live (one row per real tool call). New **`AgentMessage`** extracts the chat bubble and
 > reveals the newest assistant reply with a client-side typewriter + cyan caret (respects
 > `prefers-reduced-motion`; skips replies > 600 chars). `DirectorPanel` rewired: `liveTools[]` →
-> `liveSteps[]` (status-tracked) + `animateId`. `tsc` + `eslint` + `next build` all clean.
-> **Honest scope notes:** (a) the reply is *client-side* revealed — the backend `/director/stream`
-> returns the reply whole (no token deltas), so this is perceived, not true, token streaming;
-> (b) the board already shows *which shots are working* via the separate job-progress SSE
-> (`/events` → cyan shimmer skeleton, P1) — director **tool** events carry no `shot_id`, so a true
-> director-step→shot-card highlight is **deferred** pending a small backend change (emit the tool's
-> shot ref). **Next: P4 (select-to-scope: click a shot → `@shot` chip in the Director input; ⌘-click
-> batch → existing batch ops; + draggable `CastChip` library).**
+> `liveSteps[]` (status-tracked).
+>
+> **P3.1 — REAL token streaming (shipped, replaces the client-side typewriter):** the backend
+> `/director/stream` now streams the model-request node's text deltas as `text_delta` SSE frames
+> (PydanticAI `is_model_request_node` + `PartDeltaEvent`/`TextPartDelta`; Qwen OpenAI-compatible AND
+> the mock `dispatch_mock_stream` both support it). `DirectorPanel` accumulates `text_delta` into a
+> live bubble with a cyan caret; `done` finalizes it. `test_streaming` uses a streamable
+> `FunctionModel` and asserts `text_delta`. **Full backend pytest + frontend tsc/eslint/build green.**
+>
+> **Remaining honest note:** the board shows *which shots are working* via the separate job-progress
+> SSE (`/events` → cyan shimmer, P1); a director **step→specific-card** highlight stays deferred
+> (director tool events still carry no `shot_id` — a small future backend add).
+>
+> **Committed + pushed 2026-06-21:** `e3619f2` on branch `redesign/board-room` (P1+P2+P3+P3.1).
+>
+> **P4 IMPLEMENTED + build-green 2026-06-21** (uncommitted) — select-to-scope + Cast chips:
+> ⌘/Ctrl/Shift-click a board card (or its new "◎ direct" button) pins an `@shot N` chip into the
+> Director input — ⌘-click several to batch-scope; new `CastChip` makes each cast member a clickable
+> chip that pins `@Name`. Scoped items show an amber ring (board) + chips (Director); sending
+> prepends a natural-language scope prefix ("Regarding shot 4, the character Mei: …") — the agent
+> already understands shot/cast references, so **no backend change**. Toggling scope surfaces the
+> Director (closes the inspector, expands the rail); sending clears the scope. `tsc`/`eslint`/`build`
+> green. **Deviations from the spec sketch:** plain click still opens the inspector (scope is the
+> modifier-click / "◎ direct" button), and cast injection is click-to-pin, not drag-and-drop (DnD
+> deferred). **Next: P5 (Sequence/Timeline altitude toggle + VariationGrid A/B compare).**
 
 > **Status (2026-06-21): DESIGN LOCKED.** Direction chosen after a 6-category
 > competitive study (oiioii.tv, AI-video SaaS, AI-coding SaaS, pro video tools, AI-native craft,
