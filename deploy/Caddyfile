@@ -14,3 +14,11 @@
 		reverse_proxy frontend:3000
 	}
 }
+
+# ponytail: prod-only. Canonical host is www; redirect the bare apex so https://extrovid.xyz
+# resolves (301 → www) instead of failing the TLS handshake. Caddy auto-provisions the apex
+# cert for this block. In :80 no-domain mode it would noisily attempt ACME for the apex but
+# won't affect the main site — acceptable since :80 mode is a vestigial bootstrap path.
+extrovid.xyz {
+	redir https://www.extrovid.xyz{uri} permanent
+}
