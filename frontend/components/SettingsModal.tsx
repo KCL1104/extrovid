@@ -287,7 +287,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
       <div
         ref={panelRef}
         onClick={(e) => e.stopPropagation()}
-        className="rise relative my-auto flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-[var(--radius)] border border-border bg-panel shadow-2xl max-sm:my-4"
+        className="rise relative my-auto flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-[var(--radius)] bg-elevated ring-1 ring-border-hi max-sm:my-4"
       >
         {/* header */}
         <header className="flex shrink-0 items-start justify-between gap-4 border-b border-border px-5 py-4">

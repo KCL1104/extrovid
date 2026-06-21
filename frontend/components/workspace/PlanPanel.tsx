@@ -575,7 +575,7 @@ export default function PlanPanel({
                     <span className="flex items-center gap-2">
                       {scene.stale && (
                         <Pill
-                          className="text-run"
+                          className="text-accent"
                           // an upstream artifact changed after this scene was planned
                         >
                           stale

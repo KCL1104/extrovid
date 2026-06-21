@@ -3,7 +3,7 @@
 import { Fragment } from "react";
 import { Film, ImageIcon, Link2, Play } from "lucide-react";
 import type { Character, Scene, Shot, ShotVersion } from "@/lib/api";
-import { Button, EmptyState, Eyebrow, Panel, Pill, ScoreBadge, Spinner, StatusBadge, cn } from "@/components/ui";
+import { Button, EmptyState, Eyebrow, Panel, Pill, ScoreBadge, Skeleton, StatusBadge, cn } from "@/components/ui";
 import {
   aspectClass,
   cameraLine,
@@ -88,7 +88,7 @@ export default function ShotBoard({
           <Link2 size={14} aria-hidden /> Render chained
         </Button>
         {staleCount > 0 && (
-          <Pill className="text-run">{staleCount} stale — replanning recommended</Pill>
+          <Pill className="text-accent">{staleCount} stale — replanning recommended</Pill>
         )}
       </div>
       {/* live production counts — the board reads as a crew dashboard, not a static gallery */}
@@ -107,7 +107,7 @@ export default function ShotBoard({
           </span>
         )}
         {reviseCount > 0 && (
-          <span className="text-run">
+          <span className="text-accent">
             {reviseCount} keyframe{reviseCount === 1 ? "" : "s"} to revise
           </span>
         )}
@@ -153,7 +153,7 @@ export default function ShotBoard({
                   {sceneShots.length} shot{sceneShots.length === 1 ? "" : "s"} · ~{dur.toFixed(1)}s ·{" "}
                   {rendered}/{sceneShots.length} rendered
                 </span>
-                {sceneStale && <Pill className="text-run">stale</Pill>}
+                {sceneStale && <Pill className="text-accent">stale</Pill>}
               </header>
               {/* horizontal filmstrip — the storyboard reads as a sequence, not a gallery */}
               <div className="flex snap-x gap-4 overflow-x-auto pb-3">
@@ -225,10 +225,10 @@ function ShotCard({
             </span>
           </>
         ) : (
-          <span className="flex size-full flex-col items-center justify-center gap-2 p-3 text-center">
+          <span className="relative flex size-full flex-col items-center justify-center gap-2 p-3 text-center">
             {jobRunning ? (
               <>
-                <Spinner className="size-6 text-accent opacity-100" />
+                <Skeleton className="absolute inset-0 rounded-none" />
                 <StatusBadge status="running" />
               </>
             ) : failed ? (
@@ -266,7 +266,7 @@ function ShotCard({
             {shot.stale && (
               <span
                 title="An upstream artifact changed after this shot was planned"
-                className="rounded bg-black/60 px-1.5 py-0.5 font-mono text-[0.6rem] text-run backdrop-blur"
+                className="rounded bg-black/60 px-1.5 py-0.5 font-mono text-[0.6rem] text-accent backdrop-blur"
               >
                 stale
               </span>
@@ -308,12 +308,14 @@ function ShotCard({
 const STAGE_DOT: Record<string, string> = {
   ok: "bg-ok",
   run: "bg-run pulse-dot",
+  warn: "bg-accent",
   fail: "bg-fail",
   off: "bg-border-hi",
 };
 const STAGE_TEXT: Record<string, string> = {
   ok: "text-ok",
   run: "text-run",
+  warn: "text-accent",
   fail: "text-fail",
   off: "text-faint",
 };
@@ -333,7 +335,7 @@ function StageStrip({
   const kfTone = !shot.keyframe_frame_id
     ? "off"
     : shot.keyframe_verdict === "revise"
-      ? "run"
+      ? "warn"
       : "ok";
   const renderTone = jobRunning ? "run" : failed ? "fail" : take ? "ok" : "off";
   const reviewTone = !take?.review ? "off" : take.review.verdict === "revise" ? "fail" : "ok";

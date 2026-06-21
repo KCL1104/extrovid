@@ -3,7 +3,14 @@
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic_ai import Agent
-from pydantic_ai.messages import FunctionToolCallEvent, FunctionToolResultEvent
+from pydantic_ai.messages import (
+    FunctionToolCallEvent,
+    FunctionToolResultEvent,
+    PartDeltaEvent,
+    PartStartEvent,
+    TextPart,
+    TextPartDelta,
+)
 from pydantic_ai.usage import UsageLimits
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -102,9 +109,10 @@ async def director_stream(
     auth: AuthCtx = Depends(current_auth),
     session: AsyncSession = Depends(get_session),
 ):
-    """Same director turn as POST /director, streamed over SSE: a `tool_start`/`tool_result`
-    event as the agent works, then a final `done` with the reply + actions + fresh state.
-    Tool-execution nodes are streamed; model requests run non-streaming (no token deltas)."""
+    """Same director turn as POST /director, streamed over SSE: `text_delta` frames as the
+    model writes its reply, `tool_start`/`tool_result` as it works, then a final `done` with
+    the full reply + actions + fresh state. Model-request nodes stream token deltas; both the
+    mock (FunctionModel stream_function) and the real Qwen (OpenAI-compatible) provider support it."""
     state = await project_state.snapshot(session, project_id)
     history = await _recent_turns(session, project_id)
     prompt = _director_prompt(state, history, body.message)
@@ -114,11 +122,27 @@ async def director_stream(
     async def gen():
         reply = ""
         try:
-            try:
-                async with director_agent.iter(prompt, deps=deps, usage_limits=limits) as run:
-                    async for node in run:
-                        if not Agent.is_call_tools_node(node):
-                            continue
+            async with director_agent.iter(prompt, deps=deps, usage_limits=limits) as run:
+                async for node in run:
+                    if Agent.is_model_request_node(node):
+                        # stream the model's text tokens as it writes the reply
+                        async with node.stream(run.ctx) as request_stream:
+                            async for event in request_stream:
+                                if (
+                                    isinstance(event, PartStartEvent)
+                                    and isinstance(event.part, TextPart)
+                                    and event.part.content
+                                ):
+                                    yield event_bus.sse(
+                                        {"type": "text_delta", "delta": event.part.content}
+                                    )
+                                elif isinstance(event, PartDeltaEvent) and isinstance(
+                                    event.delta, TextPartDelta
+                                ):
+                                    yield event_bus.sse(
+                                        {"type": "text_delta", "delta": event.delta.content_delta}
+                                    )
+                    elif Agent.is_call_tools_node(node):
                         async with node.stream(run.ctx) as stream:
                             async for event in stream:
                                 if isinstance(event, FunctionToolCallEvent):
@@ -135,12 +159,7 @@ async def director_stream(
                                             == "retry-prompt",
                                         }
                                     )
-                    reply = run.result.output if run.result else ""
-            except AssertionError:
-                # defensive: a function-only FunctionModel (test override) can't stream —
-                # fall back to a non-streaming run (no tool events emitted yet at this point)
-                result = await director_agent.run(prompt, deps=deps, usage_limits=limits)
-                reply = result.output
+                reply = run.result.output if run.result else ""
         except Exception as exc:  # noqa: BLE001 - surface a clean error frame, never 500 mid-stream
             yield event_bus.sse({"type": "error", "message": str(exc)})
 
