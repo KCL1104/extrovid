@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     qwen_script_model: str = "qwen3.7-max"
     dashscope_base_url: str = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
     llm_retries: int = 2
+    # Best-of-N at the script stage: generate N drafts concurrently and keep the one the
+    # coherence judge scores highest, to tame run-to-run variance (script quality swings
+    # draw-to-draw). N=1 disables it; only runs on the real LLM (mock skips). Script is a cheap
+    # text call, so the cost is cents — the expensive video stage is unaffected.
+    script_best_of: int = 2
 
     # --- Image generation (Qwen-Image, DashScope-native sync endpoint) ---
     use_mock_image: bool = True  # mock generator + in-memory storage (offline/free)

@@ -16,6 +16,7 @@ from app.agents.cast_agent import cast_agent
 from app.agents.clarify_agent import clarify_agent
 from app.agents.outline_agent import outline_agent
 from app.agents.script_agent import script_agent
+from app.agents.script_review_agent import ScriptCoherence, review_script_coherence
 from app.agents.storyboard_agent import scene_storyboard_agent
 from app.agents.tiers import (
     Tier,
@@ -26,6 +27,7 @@ from app.agents.tiers import (
 )
 from app.agents.visual_dev_agent import visual_dev_agent
 from app.core.agent_run import run_agent
+from app.core.config import get_settings
 from app.models.enums import (
     MAX_SCENE_DURATION_SEC,
     MAX_TARGET_DURATION_SEC,
@@ -330,6 +332,44 @@ async def run_script(
     return result.output
 
 
+def _pick_best_index(verdicts: list[ScriptCoherence | None]) -> int:
+    """Index of the highest-coherence draft; unjudged (None) drafts sort last."""
+    return max(
+        range(len(verdicts)),
+        key=lambda i: verdicts[i].coherence if verdicts[i] else -1.0,
+    )
+
+
+async def _best_script(
+    brief: BriefInput,
+    clarifications: list[ClarifyAnswer] | None,
+    acts: list[ActDraft] | None,
+    emit: Callable[[dict], Awaitable[None]],
+) -> ScriptDraft:
+    """Best-of-N: draft the script N times concurrently and keep the one the coherence judge
+    scores highest — script quality swings draw-to-draw, and picking the max of N cuts the
+    bad-draw tail. Mock / N<=1 short-circuits to a single draft (no judging), so offline tests
+    and the one-prompt-to-video mock path are unchanged."""
+    n = max(1, get_settings().script_best_of)
+    if get_settings().use_mock_llm or n == 1:
+        return await run_script(brief, clarifications, acts)
+    drafts = await asyncio.gather(*(run_script(brief, clarifications, acts) for _ in range(n)))
+    await emit(
+        {"phase": "script", "status": "progress", "text": f"Evaluating {n} script drafts…"}
+    )
+    verdicts = await asyncio.gather(*(review_script_coherence(d) for d in drafts))
+    best = _pick_best_index(verdicts)
+    if verdicts[best]:
+        await emit(
+            {
+                "phase": "script",
+                "status": "progress",
+                "text": f"Kept the strongest draft (coherence {verdicts[best].coherence:.0f}/10)",
+            }
+        )
+    return drafts[best]
+
+
 async def run_cast(script: ScriptDraft) -> list[CastMember]:
     result = await run_agent(cast_agent, build_cast_prompt(script))
     return result.output.characters
@@ -491,7 +531,7 @@ async def run_pipeline(
     if tier_for(filled.target_duration_sec) is Tier.LONG:
         await emit({"phase": "script", "status": "progress", "text": "Designing the chapter outline…"})
         acts = await run_outline(filled, clarifications)
-    script = await run_script(filled, clarifications, acts)
+    script = await _best_script(filled, clarifications, acts, emit)
     await emit(
         {"phase": "script", "status": "done", "detail": f'{len(script.scenes)} scenes — "{script.logline}"'}
     )
