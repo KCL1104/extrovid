@@ -55,6 +55,7 @@ export default function ShotInspector({
   shot,
   versions,
   characters,
+  referenceFrames,
   aspect,
   canContinue,
   busy,
@@ -71,6 +72,7 @@ export default function ShotInspector({
   shot: Shot;
   versions: ShotVersion[];
   characters: Character[];
+  referenceFrames: { assetId: string; url: string | null; label: string }[];
   aspect: string;
   canContinue: boolean;
   busy: boolean;
@@ -80,6 +82,8 @@ export default function ShotInspector({
     character_id?: string;
     continue_from_previous?: boolean;
     num_takes?: number;
+    reference_asset_ids?: string[];
+    reference_roles?: string[];
   }) => void;
   onEdit: (versionId: string, instruction: string) => void;
   onPick: (versionId: string) => void;
@@ -99,6 +103,14 @@ export default function ShotInspector({
   const [note, setNote] = useState("");
   const [reviewing, setReviewing] = useState(false);
   const [numTakes, setNumTakes] = useState(1);
+  // caller-supplied reference images for this generation: asset_id -> seedance role
+  const [refRoles, setRefRoles] = useState<Record<string, string>>({});
+  const refOpts = () => {
+    const ids = Object.keys(refRoles);
+    return ids.length
+      ? { reference_asset_ids: ids, reference_roles: ids.map((id) => refRoles[id]) }
+      : {};
+  };
   // lower-panel section: keep the player+takes always visible, switch Review/Direction below
   const [section, setSection] = useState<"review" | "direction">(
     versions.some((v) => v.review) ? "review" : "direction",
@@ -783,6 +795,71 @@ export default function ShotInspector({
             {castError && <p className="font-mono text-[0.7rem] text-fail">{castError}</p>}
           </>
         )}
+        {referenceFrames.length > 0 && (
+          <div className="space-y-1.5">
+            <p className="font-mono text-[0.65rem] uppercase tracking-wide text-faint">
+              Reference images
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {referenceFrames.map((f) => {
+                const on = f.assetId in refRoles;
+                return (
+                  <button
+                    key={f.assetId}
+                    type="button"
+                    aria-pressed={on}
+                    title={f.label}
+                    onClick={() =>
+                      setRefRoles((r) => {
+                        const next = { ...r };
+                        if (on) delete next[f.assetId];
+                        else next[f.assetId] = "identity";
+                        return next;
+                      })
+                    }
+                    className={cn(
+                      "size-12 overflow-hidden rounded border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                      on
+                        ? "border-accent ring-1 ring-accent"
+                        : "border-border opacity-70 hover:opacity-100",
+                    )}
+                  >
+                    {f.url ? (
+                      <img src={f.url} alt="" className="size-full object-cover" />
+                    ) : (
+                      <span className="grid size-full place-items-center font-mono text-[0.55rem] text-faint">
+                        ref
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            {Object.keys(refRoles).map((id) => {
+              const f = referenceFrames.find((x) => x.assetId === id);
+              return (
+                <div key={id} className="flex items-center gap-2">
+                  {f?.url && <img src={f.url} alt="" className="size-6 rounded object-cover" />}
+                  <span className="min-w-0 flex-1 truncate font-mono text-[0.6rem] text-faint">
+                    {f?.label ?? id}
+                  </span>
+                  <select
+                    value={refRoles[id]}
+                    aria-label="Reference role"
+                    onChange={(e) => setRefRoles((r) => ({ ...r, [id]: e.target.value }))}
+                    className="rounded border border-border bg-transparent px-1.5 py-0.5 font-mono text-[0.6rem] text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  >
+                    {["identity", "outfit", "prop", "scene", "style"].map((role) => (
+                      <option key={role} value={role}>
+                        {role}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              );
+            })}
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="primary"
@@ -791,6 +868,7 @@ export default function ShotInspector({
               onGenerate({
                 ...(charId ? { character_id: charId } : {}),
                 ...(numTakes > 1 ? { num_takes: numTakes } : {}),
+                ...refOpts(),
               })
             }
           >
@@ -831,6 +909,7 @@ export default function ShotInspector({
                 onGenerate({
                   continue_from_previous: true,
                   ...(charId ? { character_id: charId } : {}),
+                  ...refOpts(),
                 })
               }
               title="Seed this shot with the previous shot's last frame (i2v continuation)"

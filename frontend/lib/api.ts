@@ -459,6 +459,8 @@ export const generateShot = (
   opts?: {
     first_frame_asset_id?: string;
     reference_asset_ids?: string[];
+    // parallel to reference_asset_ids: identity|outfit|prop|scene|style — what to take from each
+    reference_roles?: string[];
     character_id?: string;
     continue_from_previous?: boolean;
     num_takes?: number; // best-of-N fan-out (1-4); winner auto-selected by review
