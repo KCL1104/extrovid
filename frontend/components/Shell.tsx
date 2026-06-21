@@ -72,7 +72,9 @@ export default function Shell({ children }: { children: ReactNode }) {
 
       <Sidebar open={open} onClose={() => setOpen(false)} />
 
-      <div className="min-w-0 flex-1">{children}</div>
+      {/* desktop: the content area is the scroll owner (viewport-tall); the sidebar stays fixed.
+          mobile: natural page scroll. */}
+      <div className="min-w-0 flex-1 lg:h-screen lg:overflow-y-auto">{children}</div>
 
       <CommandPalette />
     </div>
