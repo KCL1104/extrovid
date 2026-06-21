@@ -41,7 +41,7 @@ import {
   type ShotVersion,
 } from "@/lib/api";
 import { streamSSE } from "@/lib/sse";
-import { Alert, Button, Drawer, Eyebrow, Pill, StageRail, Tabs, type TabItem } from "@/components/ui";
+import { Alert, Button, cn, Drawer, Eyebrow, Pill, StageRail, Tabs, type TabItem } from "@/components/ui";
 import PlanPanel from "@/components/workspace/PlanPanel";
 import LookBoard from "@/components/workspace/LookBoard";
 import ReviewPanel from "@/components/workspace/ReviewPanel";
@@ -49,6 +49,7 @@ import ShotBoard from "@/components/workspace/ShotBoard";
 import ShotInspector from "@/components/workspace/ShotInspector";
 import CutPlanner from "@/components/workspace/CutPlanner";
 import QueueDock from "@/components/workspace/QueueDock";
+import TimelineStrip from "@/components/workspace/TimelineStrip";
 import CastPanel from "@/components/workspace/CastPanel";
 import DirectorPanel from "@/components/workspace/DirectorPanel";
 import { PROJECTS_CHANGED } from "@/components/Sidebar";
@@ -94,6 +95,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
   const [rightCollapsed, setRightCollapsed] = useState(false); // desktop right rail collapse
   const [scopedShotIds, setScopedShotIds] = useState<string[]>([]); // director scope: shots
   const [scopedCastIds, setScopedCastIds] = useState<string[]>([]); // director scope: cast
+  const [boardView, setBoardView] = useState<"board" | "sequence">("board"); // storyboard altitude
   const [assembling, setAssembling] = useState(false);
   const [publishing, setPublishing] = useState<string | null>(null);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
@@ -785,24 +787,55 @@ export default function Workspace({ projectId }: { projectId: string }) {
               <ReviewPanel projectId={projectId} scenes={scenes} shots={shots} onRefresh={loadAll} />
             )}
             {tab === "shots" && (
-              <ShotBoard
-                shots={shots}
-                scenes={scenes}
-                versions={versions}
-                characters={characters}
-                aspect={aspect}
-                busy={busy}
-                generating={generating}
-                batchBusy={batchBusy}
-                scopedShotIds={scopedShotIds}
-                scopedCastIds={scopedCastIds}
-                onOpen={setInspected}
-                onGenerate={(shotId) => genShot(shotId)}
-                onKeyframes={genAllKeyframes}
-                onRenderAll={renderAll}
-                onToggleShotScope={toggleShotScope}
-                onToggleCastScope={toggleCastScope}
-              />
+              <div className="space-y-4">
+                {shots.length > 0 && (
+                  <div className="inline-flex rounded-[var(--radius)] border border-border bg-bg-soft p-0.5 font-mono text-xs">
+                    {(["board", "sequence"] as const).map((v) => (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => setBoardView(v)}
+                        aria-pressed={boardView === v}
+                        className={cn(
+                          "rounded-[calc(var(--radius)-0.2rem)] px-3 py-1 capitalize transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                          boardView === v ? "bg-panel-hi text-accent" : "text-muted hover:text-fg",
+                        )}
+                      >
+                        {v}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {boardView === "sequence" && shots.length > 0 ? (
+                  <TimelineStrip
+                    shots={shots}
+                    scenes={scenes}
+                    versions={versions}
+                    scopedShotIds={scopedShotIds}
+                    onOpen={setInspected}
+                    onToggleShotScope={toggleShotScope}
+                  />
+                ) : (
+                  <ShotBoard
+                    shots={shots}
+                    scenes={scenes}
+                    versions={versions}
+                    characters={characters}
+                    aspect={aspect}
+                    busy={busy}
+                    generating={generating}
+                    batchBusy={batchBusy}
+                    scopedShotIds={scopedShotIds}
+                    scopedCastIds={scopedCastIds}
+                    onOpen={setInspected}
+                    onGenerate={(shotId) => genShot(shotId)}
+                    onKeyframes={genAllKeyframes}
+                    onRenderAll={renderAll}
+                    onToggleShotScope={toggleShotScope}
+                    onToggleCastScope={toggleCastScope}
+                  />
+                )}
+              </div>
             )}
             {tab === "cut" && (
               <CutPlanner

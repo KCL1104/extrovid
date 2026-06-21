@@ -47,6 +47,16 @@
 > green. **Deviations from the spec sketch:** plain click still opens the inspector (scope is the
 > modifier-click / "◎ direct" button), and cast injection is click-to-pin, not drag-and-drop (DnD
 > deferred). **Next: P5 (Sequence/Timeline altitude toggle + VariationGrid A/B compare).**
+>
+> **P5 IMPLEMENTED + build-green 2026-06-21** (uncommitted) — Sequence altitude + take A/B:
+> new `TimelineStrip` renders the same shots as a low-density horizontal timeline — block width ∝
+> duration (pacing is visible), an arrow between adjacent shots greens up once both are rendered
+> (continuity / baton established), click to inspect, ⌘-click to scope. A quiet `[Board][Sequence]`
+> segmented toggle on the storyboard canvas switches the same shot data between altitudes
+> (Descript/Resolve pattern; absorbs Direction C as a mode). **VariationGrid / take A-B compare was
+> already present** in `ShotInspector` (numbered takes strip + `Columns2` A/B side-by-side players +
+> "use in cut"), so no duplicate component was built. `tsc`/`eslint`/`build` green. **Next: P6 (⌘K
+> command palette, CostMeter pre-spend, AutonomyToggle), then P7 (composer-first dashboard/landing).**
 
 > **Status (2026-06-21): DESIGN LOCKED.** Direction chosen after a 6-category
 > competitive study (oiioii.tv, AI-video SaaS, AI-coding SaaS, pro video tools, AI-native craft,
