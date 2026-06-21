@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import {
   BookOpen,
   Clapperboard,
@@ -11,7 +11,6 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import {
-  PLAN_STREAM_PATH,
   clarifyBrief,
   importSource,
   reviseArtifact,
@@ -21,7 +20,7 @@ import {
   type ConceptSet,
   type Scene,
 } from "@/lib/api";
-import { streamSSE } from "@/lib/sse";
+import { clearRun, getRun, startPlan, subscribe } from "@/lib/planStore";
 import { Button, Eyebrow, Panel, Pill, Spinner, cn } from "@/components/ui";
 import { errMsg } from "@/components/workspace/shared";
 import { getUser } from "@/lib/auth";
@@ -93,8 +92,14 @@ export default function PlanPanel({
     return String((tier && TIER_SECONDS[tier]) || 20);
   });
   const seconds = Math.max(5, Math.min(1200, Number.parseInt(dur, 10) || 20));
-  const [stages, setStages] = useState<Stage[]>(FRESH_STAGES);
-  const [running, setRunning] = useState(false);
+  // planning lives in a module-level store (lib/planStore) so a run survives navigating away
+  // from the project and back — this panel just subscribes and renders the live run.
+  const [, force] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => subscribe(projectId, force), [projectId]);
+  const planRun = getRun(projectId);
+  const running = planRun?.running ?? false;
+  // merge the static labels/icons with the live per-stage status from the store
+  const stages: Stage[] = FRESH_STAGES.map((s) => ({ ...s, ...(planRun?.stages[s.id] ?? {}) }));
   const [confirmReplace, setConfirmReplace] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // director Q&A (clarifying questions before the staged run)
@@ -158,60 +163,31 @@ export default function PlanPanel({
     }
   }
 
-  const mark = (id: string, status: StageStatus, detail?: string) =>
-    setStages((s) =>
-      s.map((st) => (st.id === id ? { ...st, status, detail, index: undefined, total: undefined } : st)),
-    );
-  // live sub-progress inside a still-running stage ("scene 3 of 7") — keeps it running
-  const progress = (id: string, detail?: string, index?: number, total?: number) =>
-    setStages((s) =>
-      s.map((st) =>
-        st.id === id
-          ? { ...st, status: "running", detail: detail ?? st.detail, index, total }
-          : st,
-      ),
-    );
+  // when the streamed run finishes (server persisted the plan), pull the result in and advance —
+  // works whether the run completed while this panel was mounted OR while it was navigated away
+  // (we re-attach on return and this fires on the finished run we find in the store). We only
+  // advance to review for a run this panel actually watched running, so re-opening the Plan tab
+  // later doesn't re-consume a stale finished run and bounce the user off the tab.
+  const sawRunning = useRef(false);
+  useEffect(() => {
+    if (running) sawRunning.current = true;
+  }, [running]);
+  useEffect(() => {
+    if (planRun?.finished && !planRun.running) {
+      clearRun(projectId);
+      if (sawRunning.current) void onPlanned();
+    }
+  }, [planRun?.finished, planRun?.running, projectId, onPlanned]);
 
   async function run(clarifications: ClarifyAnswer[]) {
     if (running) return;
     lastAnswers.current = clarifications;
     setConfirmReplace(false);
-    setRunning(true);
     setError(null);
-    setStages(FRESH_STAGES.map((s) => ({ ...s })));
     if (typeof window !== "undefined") localStorage.setItem("extrovid:dur", String(seconds));
-
-    // One streamed run (Brief→Storyboard) instead of four blocking calls: the server emits a
-    // `stage` event per phase (running / progress / done) so the console shows what it's doing
-    // live, and the stream never idles — fixing the "Failed to fetch" on long plans. The plan
-    // is persisted atomically server-side, signalled by the terminal `done` event.
-    let current = "brief";
-    let finished = false;
-    let streamErr: string | null = null;
-    try {
-      await streamSSE(PLAN_STREAM_PATH(projectId), {
-        method: "POST",
-        body: { raw_prompt: brief.trim(), clarifications, target_duration_sec: seconds },
-        onEvent: (e) => {
-          if (e.type === "stage") {
-            current = (e.phase as string) ?? current;
-            if (e.status === "running") mark(current, "running");
-            else if (e.status === "progress")
-              progress(current, e.text as string | undefined, e.index as number, e.total as number);
-            else if (e.status === "done") mark(current, "done", e.detail as string | undefined);
-          } else if (e.type === "done") finished = true;
-          else if (e.type === "error") streamErr = (e.message as string) || "Planning failed.";
-        },
-      });
-      if (streamErr) throw new Error(streamErr);
-      if (!finished) throw new Error("The planning stream ended early — please retry.");
-      await onPlanned();
-    } catch (e) {
-      mark(current, "error");
-      setError(errMsg(e));
-    } finally {
-      setRunning(false);
-    }
+    // The store owns the SSE stream (Brief->Storyboard, one streamed run, persisted atomically
+    // server-side). It survives navigating away; the finished-effect above advances the panel.
+    await startPlan(projectId, { brief: brief.trim(), clarifications, seconds });
   }
 
   /** Ask the director's assistant whether the brief needs clarifying before planning. */
@@ -559,9 +535,9 @@ export default function PlanPanel({
               );
             })}
           </ol>
-          {error && (
+          {(planRun?.error || error) && (
             <div className="mt-4 flex flex-wrap items-center gap-3">
-              <span className="font-mono text-xs text-fail">{error}</span>
+              <span className="font-mono text-xs text-fail">{planRun?.error || error}</span>
               <Button onClick={() => run(lastAnswers.current)} loading={running}>
                 Retry
               </Button>

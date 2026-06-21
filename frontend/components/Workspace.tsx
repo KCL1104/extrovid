@@ -293,7 +293,13 @@ export default function Workspace({ projectId }: { projectId: string }) {
 
   async function genShot(
     shotId: string,
-    opts?: { character_id?: string; continue_from_previous?: boolean; num_takes?: number },
+    opts?: {
+      character_id?: string;
+      continue_from_previous?: boolean;
+      num_takes?: number;
+      reference_asset_ids?: string[];
+      reference_roles?: string[];
+    },
   ) {
     setBusy((b) => ({ ...b, [shotId]: true }));
     setError(null);
@@ -559,6 +565,13 @@ export default function Workspace({ projectId }: { projectId: string }) {
     },
   ];
 
+  // rendered concept/look frames usable as caller-supplied references (each carries an asset id)
+  const referenceFrames = conceptSets.flatMap((cs) =>
+    cs.look_frames
+      .filter((f) => f.image_asset_id)
+      .map((f) => ({ assetId: f.image_asset_id as string, url: f.image_url, label: f.prompt })),
+  );
+
   const inspectorEl = inspectedShot ? (
     <ShotInspector
       docked={isDesktop}
@@ -566,6 +579,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
       shot={inspectedShot}
       versions={versions[inspectedShot.id] ?? []}
       characters={characters}
+      referenceFrames={referenceFrames}
       aspect={aspect}
       canContinue={canContinue}
       busy={!!busy[inspectedShot.id] || generating.includes(inspectedShot.id)}
