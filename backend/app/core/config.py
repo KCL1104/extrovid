@@ -79,14 +79,17 @@ class Settings(BaseSettings):
     wan_videoedit_model: str = "wan2.7-videoedit"
     # Video provider seam (see app/providers/video_factory.py). Both providers ride the SAME
     # DashScope video-synthesis async endpoint + DASHSCOPE_API_KEY below — the flag only selects
-    # which model id each routing mode maps to. "happyhorse" = HappyHorse-1.0 (Alibaba; #1 on the
+    # which model id each routing mode maps to. "happyhorse" = HappyHorse (Alibaba; #1 on the
     # Artificial Analysis Video Arena — T2V ~1374 / I2V ~1410 Elo, ~+140 over Wan — native audio +
     # 7-language lip-sync). HappyHorse is the DEFAULT and has full t2v/i2v/r2v/video-edit parity on
     # DashScope. Set VIDEO_PROVIDER=wan to route every mode back to Wan instead.
+    # t2v/i2v/r2v run on HappyHorse-1.1 (smoother motion, stronger subject consistency, better
+    # instruction following + audio-visual sync, up to 9 reference images); video-edit has no 1.1
+    # on DashScope yet, so it stays on happyhorse-1.0-video-edit.
     video_provider: str = "happyhorse"  # "happyhorse" | "wan"
-    happyhorse_t2v_model: str = "happyhorse-1.0-t2v"
-    happyhorse_i2v_model: str = "happyhorse-1.0-i2v"
-    happyhorse_r2v_model: str = "happyhorse-1.0-r2v"
+    happyhorse_t2v_model: str = "happyhorse-1.1-t2v"
+    happyhorse_i2v_model: str = "happyhorse-1.1-i2v"
+    happyhorse_r2v_model: str = "happyhorse-1.1-r2v"
     happyhorse_videoedit_model: str = "happyhorse-1.0-video-edit"
     dashscope_video_url: str = (
         "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis"
@@ -145,7 +148,7 @@ class Settings(BaseSettings):
     daily_image_cap: int = 40
     daily_audio_cap: int = 60
     # Per-job cost rates (USD) — computed from actual duration/resolution/model at creation.
-    # Video per-second rates for the default provider (HappyHorse-1.0): 720p $0.14/s, 1080p
+    # Video per-second rates for the default provider (HappyHorse): 720p $0.14/s, 1080p
     # $0.28/s. r2v/video-edit run slightly higher but we keep one base rate per resolution.
     # Drives est_spend_usd + per-user caps; set VIDEO_PROVIDER=wan → adjust to Wan's rates.
     cost_per_video_sec_720p: float = 0.14

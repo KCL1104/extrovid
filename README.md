@@ -60,12 +60,13 @@ Qwen Cloud.
 | Image generation (concept frames / keyframes / portraits) | `wan2.7-image-pro` (up to 4K) | `app/providers/image_factory.py` |
 | Image refine / edit | `qwen-image-edit-plus` | same |
 | Text-to-speech (voiceover) | `qwen3-tts` | `app/providers/audio_factory.py` |
-| Video (t2v / i2v / r2v / video-edit) | **HappyHorse-1.0** (default) or Wan 2.7 | `app/providers/video_factory.py` |
+| Video (t2v / i2v / r2v / video-edit) | **HappyHorse** (default) or Wan 2.7 | `app/providers/video_factory.py` |
 
 The **video provider** is selectable with `VIDEO_PROVIDER` (`happyhorse` default, or `wan`). Both
 ride the same DashScope `video-synthesis` async submit→poll transport and the same
-`DASHSCOPE_API_KEY`; the flag only picks model ids. HappyHorse-1.0 ranks #1 on the Artificial
-Analysis Video Arena and offers t2v / i2v / r2v / video-edit parity.
+`DASHSCOPE_API_KEY`; the flag only picks model ids. HappyHorse ranks #1 on the Artificial
+Analysis Video Arena and offers t2v / i2v / r2v / video-edit parity; t2v/i2v/r2v run on
+HappyHorse-1.1, while video-edit stays on 1.0 (no 1.1 on DashScope yet).
 
 See [`docs/model-upgrades-2026-06.md`](docs/model-upgrades-2026-06.md) for the model research and
 decisions.

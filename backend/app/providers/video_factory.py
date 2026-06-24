@@ -4,8 +4,9 @@ Both supported providers ride the SAME DashScope async submit->poll endpoint
 (``dashscope_video_url``) with the SAME ``DASHSCOPE_API_KEY``; the ``VIDEO_PROVIDER`` flag only
 selects which model id each abstract routing mode (t2v/i2v/r2v/videoedit) maps to:
 
-- ``happyhorse`` (default) — HappyHorse-1.0 (Alibaba; #1 on the Artificial Analysis Video Arena,
-  native audio + 7-language lip-sync), with full t2v/i2v/r2v/video-edit parity on DashScope.
+- ``happyhorse`` (default) — HappyHorse (Alibaba; #1 on the Artificial Analysis Video Arena,
+  native audio + 7-language lip-sync). t2v/i2v/r2v run on HappyHorse-1.1; video-edit has no 1.1
+  on DashScope yet so it stays on happyhorse-1.0-video-edit.
 - ``wan`` — Wan 2.7 (t2v/i2v/r2v/videoedit) everywhere.
 
 ``USE_MOCK_VIDEO`` swaps the whole transport for an instant deterministic mock so the

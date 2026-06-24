@@ -37,9 +37,9 @@ def tier_for(target_duration_sec: int | float | None) -> Tier:
 
 # Average-shot-length guidance per tier (seconds). Shorter ASL = faster cutting.
 ASL_BY_TIER: dict[Tier, float] = {
-    Tier.SHORT: 2.5,
-    Tier.MEDIUM: 3.5,
-    Tier.LONG: 4.5,
+    Tier.SHORT: 4.0,
+    Tier.MEDIUM: 6.0,
+    Tier.LONG: 8.0,
 }
 
 # Soft scene-count range per tier (the script agent still scales with duration; this anchors it).
