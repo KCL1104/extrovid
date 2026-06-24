@@ -1,6 +1,6 @@
 """Video provider seam — offline (mock). Both providers ride the same DashScope transport and
-differ only by model id. HappyHorse-1.0 is the default; r2v (no HappyHorse model on DashScope)
-falls back to Wan r2v; VIDEO_PROVIDER=wan flips every mode back to Wan. These lock the dispatch +
+differ only by model id. HappyHorse is the default (1.1 for t2v/i2v/r2v, 1.0 for video-edit);
+VIDEO_PROVIDER=wan flips every mode back to Wan. These lock the dispatch +
 mode resolution and that a flag flip carries through generate -> ingest -> take.model.
 """
 
@@ -13,10 +13,10 @@ from app.providers.video_factory import _resolve_video_model
 def test_resolve_model_maps_mode_to_provider(monkeypatch):
     s = get_settings()
     monkeypatch.setattr(s, "video_provider", "happyhorse")
-    assert "happyhorse-1.0-t2v" in _resolve_video_model(s, "t2v")
-    assert "happyhorse-1.0-i2v" in _resolve_video_model(s, "i2v")
-    assert "happyhorse-1.0-r2v" in _resolve_video_model(s, "r2v")
-    assert "video-edit" in _resolve_video_model(s, "videoedit")
+    assert "happyhorse-1.1-t2v" in _resolve_video_model(s, "t2v")
+    assert "happyhorse-1.1-i2v" in _resolve_video_model(s, "i2v")
+    assert "happyhorse-1.1-r2v" in _resolve_video_model(s, "r2v")
+    assert "happyhorse-1.0-video-edit" == _resolve_video_model(s, "videoedit")
 
     monkeypatch.setattr(s, "video_provider", "wan")
     assert _resolve_video_model(s, "t2v") == s.wan_t2v_model
