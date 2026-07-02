@@ -12,6 +12,7 @@ relies on poll_and_ingest_job (called by the reconciler loop or the refresh endp
 """
 
 import asyncio
+import re
 import uuid
 from datetime import UTC, datetime
 from math import ceil
@@ -106,9 +107,29 @@ async def _auto_first_frame_asset_id(session: AsyncSession, project_id: str) -> 
     return row.image_asset_id if row else None
 
 
-# Wan r2v accepts up to 5 media items; cap references at 4 so the identity portrait AND a
-# first_frame seed (continuation/keyframe anchor) always survive the provider's media limit.
-_MAX_REFERENCE_IMAGES = 4
+def _max_reference_images() -> int:
+    """Provider media limit minus one reserved slot for the first_frame seed.
+
+    Wan r2v accepts up to 5 media items; HappyHorse 1.1 accepts up to 9 reference images.
+    Reserving the seed slot keeps the identity portrait (and the continuation/keyframe
+    anchor added downstream) from being crowded out.
+    """
+    return 8 if get_settings().video_provider == "happyhorse" else 4
+
+
+def _shot_reference_text(shot: Shot | None) -> str:
+    if shot is None:
+        return ""
+    perf = shot.performance_spec or {}
+    return " ".join(
+        [
+            str(perf.get("subject", "")),
+            str(perf.get("action", "")),
+            str(shot.motion_desc or ""),
+            str(shot.first_frame_desc or ""),
+            str(shot.speaker or ""),
+        ]
+    ).lower()
 
 
 async def _resolve_reference_urls(
@@ -117,13 +138,16 @@ async def _resolve_reference_urls(
     reference_asset_ids: list[str] | None,
     character_id: str | None,
     shot: Shot | None = None,
-) -> list[str]:
+) -> tuple[list[str], list[str]]:
     """Resolve reference image URLs in priority tiers, identity portrait first.
 
     Tier order (highest first): the view-matched character portrait — reserved at slot 0,
-    never evicted — then caller-provided references, then up to two character look frames.
-    Capped so the identity anchor (and the first_frame seed added downstream) is never
-    crowded out by lower-priority references.
+    never evicted — then caller-provided references, then front portraits of OTHER cast
+    members named in the shot (multi-character shots previously anchored only one
+    identity), then up to two character look frames. Capped so the identity anchor (and
+    the first_frame seed added downstream) is never crowded out by lower-priority
+    references. Returns ``(urls, supporting_cast_names)`` — the names whose portraits
+    actually made it into the reference set, so the prompt can bind them.
     """
     portrait_id: str | None = None
     look_frame_asset_ids: list[str] = []
@@ -140,21 +164,48 @@ async def _resolve_reference_urls(
                 if lf and lf.image_asset_id:
                     look_frame_asset_ids.append(lf.image_asset_id)
 
-    # priority order: portrait (identity anchor) > caller refs > at most two look frames
+    # supporting cast: other characters NAMED in the shot contribute their front portrait
+    # as an extra identity anchor (studio practice: every recurring face rides a reference)
+    secondary: list[tuple[str, str]] = []  # (asset_id, character_name)
+    shot_text = _shot_reference_text(shot)
+    if shot_text.strip():
+        cast = (
+            (
+                await session.execute(
+                    select(CharacterProfile).where(CharacterProfile.project_id == project_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for other in cast:
+            if other.id == character_id or not other.name:
+                continue
+            if re.search(rf"\b{re.escape(other.name.lower())}\b", shot_text):
+                front = (other.portrait_assets or {}).get("front")
+                if front:
+                    secondary.append((front, other.name))
+
+    # priority: portrait (identity) > caller refs > supporting-cast portraits > look frames
     ordered: list[str] = []
     if portrait_id:
         ordered.append(portrait_id)
     ordered.extend(reference_asset_ids or [])
+    ordered.extend(aid for aid, _ in secondary)
     ordered.extend(look_frame_asset_ids[:2])
 
     urls: list[str] = []
+    included: set[str] = set()
+    cap = _max_reference_images()
     for aid in dict.fromkeys(ordered):  # dedupe, preserve priority order
         u = await asset_url(session, aid)
         if u:
             urls.append(u)
-        if len(urls) >= _MAX_REFERENCE_IMAGES:
+            included.add(aid)
+        if len(urls) >= cap:
             break
-    return urls
+    names = [name for aid, name in secondary if aid in included]
+    return urls, names
 
 
 async def _previous_shot(session: AsyncSession, project_id: str, shot: Shot) -> Shot | None:
@@ -429,7 +480,7 @@ async def _activate_submission(
     ratio = _ratio_for(project.aspect_ratio if project else "")
     duration = _clip_duration(shot.duration_sec)
 
-    reference_urls = await _resolve_reference_urls(
+    reference_urls, supporting_cast = await _resolve_reference_urls(
         session, project_id, reference_asset_ids, character_id, shot=shot
     )
 
@@ -491,8 +542,13 @@ async def _activate_submission(
         character=character,
         has_reference_images=bool(reference_urls),
         reference_roles=reference_roles,
+        supporting_cast=supporting_cast,
         clarifications=brief_row.clarifications if brief_row else None,
     )
+    # i2v stability hint (Seedance guide): when a first frame seeds the shot without
+    # r2v refs, tell the model the seed is authoritative instead of a loose suggestion
+    if first_frame_url and not reference_urls:
+        prompt += " Preserve the first frame's composition, palette, and subject identity."
     negative_prompt = compose_negative_prompt(
         visual_brief=visual_brief, style_pack=style_pack, character=character
     )

@@ -14,6 +14,7 @@ import {
   generateShot,
   generateVoiceover,
   getConceptSets,
+  getProduceStatus,
   getProject,
   getScript,
   getStoryboard,
@@ -27,12 +28,15 @@ import {
   retryJob,
   reviewVersion,
   selectVersion,
+  startProduce,
+  stopProduce,
   unpublishCut,
   updateShot,
   type Character,
   type ClipSpec,
   type ConceptSet,
   type Job,
+  type ProduceStatus,
   type Project,
   type RoughCut,
   type Scene,
@@ -102,6 +106,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
   const [publishing, setPublishing] = useState<string | null>(null);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [generating, setGenerating] = useState<string[]>([]);
+  const [produce, setProduce] = useState<ProduceStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [announce, setAnnounce] = useState("");
@@ -195,6 +200,21 @@ export default function Workspace({ projectId }: { projectId: string }) {
     streamSSE(`/projects/${projectId}/events`, {
       signal: ctrl.signal,
       onEvent: async (e) => {
+        if (e.type === "produce") {
+          const state = e.state as ProduceStatus["state"];
+          setProduce({
+            state,
+            stage: (e.stage as string | null) ?? null,
+            detail: (e.detail as string | null) ?? null,
+            running: state === "running",
+          });
+          // a run milestone changes many artifacts at once — refresh the whole board
+          if (state === "paused" || state === "done" || state === "error") {
+            loadAll();
+            usageChanged();
+          }
+          return;
+        }
         if (e.type !== "job" || typeof e.shot_id !== "string") return;
         const sid = e.shot_id;
         try {
@@ -210,7 +230,23 @@ export default function Workspace({ projectId }: { projectId: string }) {
       /* SSE is additive; the poll remains the source of truth */
     });
     return () => ctrl.abort();
-  }, [projectId, loadJobs]);
+  }, [projectId, loadJobs, loadAll]);
+
+  // produce status on entry (a paused/running run survives navigation) + poll while running
+  useEffect(() => {
+    getProduceStatus(projectId).then(setProduce).catch(() => {});
+  }, [projectId]);
+  useEffect(() => {
+    if (!produce?.running) return;
+    const t = setInterval(async () => {
+      try {
+        setProduce(await getProduceStatus(projectId));
+      } catch {
+        /* SSE carries the milestones; this poll is the fallback */
+      }
+    }, 5000);
+    return () => clearInterval(t);
+  }, [produce?.running, projectId]);
 
   // poll generating shots (resilient: one failed/404 id never strands the others);
   // the interval restarts when the generating set changes, so the closure stays fresh
@@ -356,6 +392,24 @@ export default function Workspace({ projectId }: { projectId: string }) {
       setError(errMsg(e));
     } finally {
       setBatchBusy(null);
+    }
+  }
+
+  async function produceAll() {
+    setError(null);
+    try {
+      setProduce(await startProduce(projectId));
+    } catch (e) {
+      setError(errMsg(e));
+    }
+  }
+
+  async function produceStop() {
+    setError(null);
+    try {
+      setProduce(await stopProduce(projectId));
+    } catch (e) {
+      setError(errMsg(e));
     }
   }
 
@@ -868,6 +922,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
                     busy={busy}
                     generating={generating}
                     batchBusy={batchBusy}
+                    produce={produce}
                     projectId={projectId}
                     budgetUsd={project?.budget_usd}
                     scopedShotIds={scopedShotIds}
@@ -877,6 +932,8 @@ export default function Workspace({ projectId }: { projectId: string }) {
                     onGenerate={(shotId) => genShot(shotId)}
                     onKeyframes={genAllKeyframes}
                     onRenderAll={renderAll}
+                    onProduce={produceAll}
+                    onStopProduce={produceStop}
                     onToggleShotScope={toggleShotScope}
                     onToggleCastScope={toggleCastScope}
                     onAttachCast={(shotId, castId) =>

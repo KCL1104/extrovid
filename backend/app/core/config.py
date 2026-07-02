@@ -95,7 +95,9 @@ class Settings(BaseSettings):
         "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis"
     )
     dashscope_task_url: str = "https://dashscope-intl.aliyuncs.com/api/v1/tasks"
-    video_resolution: str = "720P"
+    # HappyHorse supports 1080P natively — the single biggest perceived-quality lever.
+    # Drop to 720P via VIDEO_RESOLUTION if cost matters more than polish.
+    video_resolution: str = "1080P"
     video_reconcile_interval_sec: int = 10
     video_job_timeout_sec: int = 600  # stuck RUNNING jobs older than this -> FAILED
     sse_keepalive_sec: int = 15  # SSE idle ping so the Railway proxy doesn't cut the socket

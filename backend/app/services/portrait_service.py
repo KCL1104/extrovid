@@ -15,14 +15,19 @@ from app.core.logging import log
 from app.models.memory import CharacterProfile, StylePack
 from app.providers.image_factory import edit_image, generate_image
 from app.services.asset_service import asset_url, store_image
+from app.services.prompt_service import compose_negative_prompt
 from app.services.usage_service import assert_within_cap
 
-# Adapted near-verbatim from ViMax's CharacterPortraitsGenerator templates.
+# Adapted near-verbatim from ViMax's CharacterPortraitsGenerator templates, with an
+# explicit lighting + render-quality floor (the portrait is the identity master every
+# downstream keyframe/r2v shot anchors to — its quality compounds through the pipeline).
 _FRONT_TEMPLATE = (
     "Generate a full-body, front-view portrait of character {name} based on the following "
     "description, with a pure white background. The character should be centered in the "
     "image, occupying most of the frame. Gazing straight ahead. Standing with arms relaxed "
-    "at sides. Natural expression.\nFeatures: {features}\nStyle: {style}"
+    "at sides. Natural expression.\nFeatures: {features}\nStyle: {style}\n"
+    "Lighting: soft, even studio lighting with gentle falloff. "
+    "Sharp focus, rich fine detail, professional color grading."
 )
 _SIDE_INSTRUCTION = (
     "Turn this character to a full side view, facing left, based on the provided front-view "
@@ -69,15 +74,16 @@ async def generate_portrait_sheet(
     await assert_within_cap(session, "image", 3, auth=auth)
 
     front_prompt = _FRONT_TEMPLATE.format(name=profile.name, features=_features(profile), style=style)
-    front = await generate_image(front_prompt, _PORTRAIT_SIZE)
+    negative = compose_negative_prompt(style_pack=style_pack, character=profile)
+    front = await generate_image(front_prompt, _PORTRAIT_SIZE, negative_prompt=negative)
     front_asset = await store_image(
         session, project_id, front, f"portrait front — {profile.name}"
     )
 
     front_url = await asset_url(session, front_asset.id) or ""
-    side = await edit_image(front_url, _SIDE_INSTRUCTION)
+    side = await edit_image(front_url, _SIDE_INSTRUCTION, negative_prompt=negative)
     side_asset = await store_image(session, project_id, side, f"portrait side — {profile.name}")
-    back = await edit_image(front_url, _BACK_INSTRUCTION)
+    back = await edit_image(front_url, _BACK_INSTRUCTION, negative_prompt=negative)
     back_asset = await store_image(session, project_id, back, f"portrait back — {profile.name}")
 
     profile.portrait_assets = {

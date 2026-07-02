@@ -100,6 +100,21 @@ def test_reference_line_without_character_is_generic():
     assert p.startswith("The main subject matches the reference image")
 
 
+def test_supporting_cast_binds_to_their_portraits():
+    p = compose_shot_prompt(
+        _shot(), has_reference_images=True, supporting_cast=["Ben", "Ada", "Ben"]
+    )
+    assert "the supporting cast (Ben, Ada) each match their reference portraits" in p
+    # without reference images the clause never appears
+    assert "supporting cast" not in compose_shot_prompt(_shot(), supporting_cast=["Ben"])
+
+
+def test_baseline_negatives_cover_identity_and_stability():
+    neg = compose_negative_prompt()
+    assert "identity drift" in neg
+    assert "camera jitter" in neg
+
+
 def test_default_style_and_lighting_when_brief_is_empty():
     p = compose_shot_prompt(_shot())  # bare shot — no brief
     assert "style: cinematic, shallow depth of field" in p
@@ -164,6 +179,24 @@ def test_keyframe_seed_carries_facing_direction_even_with_first_frame_desc():
     assert "the figure at the airlock threshold" in p  # planned snapshot still leads
     assert "framing: subject seen from behind, walking away" in p
     assert "screen direction: moving away" in p
+
+
+def test_keyframe_gets_quality_tail_and_look_defaults():
+    """Still keyframes always carry a look direction + a photographic quality floor."""
+    p = compose_keyframe_prompt(_shot())  # bare shot — no brief, no style pack
+    assert "style: cinematic, shallow depth of field" in p
+    assert "lighting: natural, motivated lighting" in p
+    assert "sharp focus, rich fine detail" in p
+    assert "no motion blur" in p
+
+
+def test_keyframe_authored_look_wins_and_style_pack_lighting_beats_brief():
+    sp = StylePack(project_id="p", label="Brand", visual_style="film noir", lighting="hard rim light")
+    p = compose_keyframe_prompt(_shot(), visual_brief=VISUAL_BRIEF, style_pack=sp)
+    assert "lighting: hard rim light" in p  # style pack wins over the brief, like the video prompt
+    assert "natural, motivated lighting" not in p
+    assert "shallow depth of field" not in p
+    assert "sharp focus, rich fine detail" in p  # quality tail is unconditional
 
 
 def test_spoken_line_is_a_performance_cue_but_not_for_narrator():

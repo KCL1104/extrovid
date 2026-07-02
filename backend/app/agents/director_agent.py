@@ -31,6 +31,10 @@ or render, call no further tools — report the plan state and ask whether to re
 start generating. Prefer revise_artifact for small changes over regenerating stages;
 regeneration destroys downstream work, revision marks it stale instead.
 
+When the client asks for the WHOLE film ("make it all", "finish the video"), prefer
+produce_project over shot-by-shot tools — it runs every remaining stage and pauses at
+the keyframe checkpoint for their review.
+
 Be concise and concrete in replies: what you did (per tool results), what it changed,
 and the single most useful next step."""
 
@@ -189,6 +193,34 @@ async def get_review(ctx: RunContext[DirectorDeps], shot_id: str) -> dict:
     v = next((x for x in versions if x.selected), versions[-1])
     _record(ctx, "get_review", {"shot_id": shot_id}, f"score={v.score}")
     return {"version_id": v.id, "score": v.score, "review": v.review, "selected": v.selected}
+
+
+@director_agent.tool
+async def produce_project(ctx: RunContext[DirectorDeps], mode: str = "gated") -> dict:
+    """Run EVERY remaining pipeline stage in one go: portraits -> keyframes -> shot
+    videos -> voiceovers -> rough cut. Each stage only does still-missing work, so
+    re-running resumes a paused run. mode='gated' (default) pauses after newly created
+    keyframes so the client can review the board before video budget is spent;
+    mode='auto' runs straight through. Asynchronous and long-running — report that the
+    run STARTED (and its current stage), never that the film is done."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app.models.project import Project
+    from app.services import produce_service, review_gate_service
+
+    project = await ctx.deps.session.get(Project, ctx.deps.project_id)
+    blockers = review_gate_service.project_generation_blockers(project)
+    blockers += await review_gate_service.budget_blockers(ctx.deps.session, project)
+    if blockers:
+        return {"error": "blocked", "blockers": blockers}
+    st = produce_service.start(
+        ctx.deps.project_id,
+        auth=ctx.deps.auth,
+        session_factory=async_sessionmaker(ctx.deps.session.bind, expire_on_commit=False),
+        mode="auto" if mode == "auto" else "gated",
+    )
+    _record(ctx, "produce_project", {"mode": mode}, f"{st['state']} at {st.get('stage')}")
+    return st
 
 
 @director_agent.tool

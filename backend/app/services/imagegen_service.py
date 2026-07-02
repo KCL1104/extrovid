@@ -51,9 +51,10 @@ async def generate_images_for_concept_set(
     if todo:
         await assert_within_cap(session, "image", len(todo), auth=auth)
 
-    # the scene's negative rules condition image generation natively too
+    # the scene's negative rules condition image generation natively too (plus the
+    # always-on artifact baseline from compose_negative_prompt)
     vb = cs.visual_brief or {}
-    negative = "; ".join(str(r) for r in (vb.get("negative_rules") or [])[:6]) or None
+    negative = compose_negative_prompt(visual_brief=vb)
 
     for frame in todo:
         result = await generate_image(frame.prompt, size, negative_prompt=negative)
@@ -152,7 +153,9 @@ async def generate_shot_keyframe(
     base_id = portraits.get(view)
     base_url = await asset_url(session, base_id) if base_id else None
     if base_url:
-        result = await edit_image(base_url, _keyframe_edit_instruction(view, prompt))
+        result = await edit_image(
+            base_url, _keyframe_edit_instruction(view, prompt), negative_prompt=negative
+        )
     else:
         result = await generate_image(prompt, size, negative_prompt=negative)
     asset = await store_image(session, project_id, result, prompt)
@@ -204,7 +207,7 @@ async def refine_look_frame(
         raise LookupError("look frame image is unavailable")
 
     await assert_within_cap(session, "image", 1, auth=auth)
-    result = await edit_image(source_url, instruction)
+    result = await edit_image(source_url, instruction, negative_prompt=compose_negative_prompt())
     prompt = f"{frame.prompt} — refined: {instruction}"
     asset = await store_image(session, project_id, result, prompt)
 
