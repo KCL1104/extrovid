@@ -499,6 +499,7 @@ class ShotRead(BaseModel):
     suggest_still: bool = False  # advisory: low-motion shot, cheap candidate for a still
     keyframe_verdict: str | None = None  # keyframe gate verdict: "pass" | "revise" | None
     keyframe_score: float | None = None  # keyframe gate score 0-10
+    keyframe_url: str | None = None  # keyframe image URL — the board's pre-render poster
     stale: bool = False  # an upstream artifact changed after this was planned
     approved: bool = False  # signed off at the review gate
     locked: bool = False  # blocks targeted revision (revise/apply)

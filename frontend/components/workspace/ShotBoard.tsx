@@ -279,6 +279,9 @@ function ShotCard({
   const failed = !take && !jobRunning && versions.some((v) => v.job_status === "failed");
   const model = (take?.model ?? shot.preferred_model).split(":").pop()!.replace("wan2.7-", "");
   const thumb = take && isPlayable(take.thumbnail_url) ? take.thumbnail_url : null;
+  // pre-render, the keyframe is the poster — it's what the Produce gate asks you to review
+  const kfPoster = !take && isPlayable(shot.keyframe_url) ? shot.keyframe_url : null;
+  const poster = thumb ?? kfPoster;
   const finishedCount = versions.filter((v) => v.output_asset_id).length;
 
   return (
@@ -304,15 +307,33 @@ function ShotCard({
         )}
         aria-busy={jobRunning}
       >
-        {thumb ? (
+        {poster ? (
           <>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={thumb} alt="" className="size-full object-cover" />
-            <span className="absolute inset-0 grid place-items-center bg-black/0 transition-colors group-hover:bg-black/30">
-              <span className="grid size-12 place-items-center rounded-full bg-black/60 text-accent opacity-0 backdrop-blur transition-opacity group-hover:opacity-100">
-                <Play size={18} aria-hidden />
+            <img
+              src={poster}
+              alt=""
+              className="size-full object-cover"
+              onError={(e) => (e.currentTarget.style.visibility = "hidden")}
+            />
+            {thumb ? (
+              <span className="absolute inset-0 grid place-items-center bg-black/0 transition-colors group-hover:bg-black/30">
+                <span className="grid size-12 place-items-center rounded-full bg-black/60 text-accent opacity-0 backdrop-blur transition-opacity group-hover:opacity-100">
+                  <Play size={18} aria-hidden />
+                </span>
               </span>
-            </span>
+            ) : (
+              <span className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/70 to-transparent px-2 pb-1.5 pt-4">
+                <span className="font-mono text-[0.6rem] text-fg/80">keyframe — not rendered</span>
+                {jobRunning ? (
+                  <StatusBadge status="running" />
+                ) : (
+                  shot.keyframe_score != null && (
+                    <ScoreBadge score={shot.keyframe_score} verdict={shot.keyframe_verdict ?? undefined} />
+                  )
+                )}
+              </span>
+            )}
           </>
         ) : (
           <span className="relative flex size-full flex-col items-center justify-center gap-2 p-3 text-center">
@@ -333,6 +354,14 @@ function ShotCard({
                 <StatusBadge status="succeeded" />
                 <span className="font-mono text-[0.65rem] text-faint">
                   rendered — open to direct
+                </span>
+              </>
+            ) : shot.first_frame_desc ? (
+              <>
+                <span className="font-mono text-[0.65rem] text-faint">not generated</span>
+                {/* the planned keyframe contract — the card previews intent before any pixels exist */}
+                <span className="line-clamp-4 px-1 text-[0.7rem] italic leading-relaxed text-muted">
+                  “{shot.first_frame_desc}”
                 </span>
               </>
             ) : (

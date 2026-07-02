@@ -154,6 +154,7 @@ export type Shot = {
   suggest_still?: boolean; // advisory: low-motion shot, cheap candidate for a still
   keyframe_verdict?: string | null; // keyframe gate: "pass" | "revise" | null
   keyframe_score?: number | null; // keyframe gate score 0-10
+  keyframe_url?: string | null; // keyframe image — the board's pre-render poster
   stale?: boolean; // an upstream artifact changed after this was planned
   approved?: boolean; // signed off at the review gate
   locked?: boolean; // frozen against bulk regeneration

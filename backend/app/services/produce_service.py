@@ -242,7 +242,10 @@ async def _run(
             project_id,
             "paused",
             stage=_STATUS.get(project_id, {}).get("stage"),
-            detail=f"daily {e.kind} cap reached ({e.remaining} left) — Produce again after it resets",
+            detail=(
+                f"daily {e.kind} cap: only {e.remaining} left today, fewer than this run needs — "
+                "Produce again after it resets"
+            ),
         )
     except Exception as e:  # noqa: BLE001 - a produce run must end in a reportable state
         log.warning("produce.failed project=%s", project_id, exc_info=True)

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ChangeEvent, type ReactNode } from "react";
+import { useEffect, useState, type ChangeEvent, type ReactNode } from "react";
 import { ArrowRightToLine, Columns2, ImagePlus, RefreshCw, Sparkles, Volume2, X } from "lucide-react";
 import type { Character, Shot, ShotTransition, ShotUpdate, ShotVersion } from "@/lib/api";
 import {
@@ -272,6 +272,19 @@ export default function ShotInspector({
     }
   }
 
+  // docked pane has no Drawer around it, so wire Escape here (skip while typing in a field)
+  useEffect(() => {
+    if (!docked) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.closest("input, textarea, select") || t.isContentEditable)) return;
+      onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [docked, onClose]);
+
   const content = (
     <>
       {/* header */}
@@ -300,6 +313,7 @@ export default function ShotInspector({
             running={jobRunning && !active}
             label={active ? `Take ${takeIndex(active)}` : undefined}
             onUse={active && comparing ? () => onPick(active.id) : undefined}
+            keyframeUrl={isPlayable(shot.keyframe_url) ? shot.keyframe_url : undefined}
           />
           {comparing && compare && (
             <TakePlayer
@@ -1006,12 +1020,14 @@ function TakePlayer({
   running,
   label,
   onUse,
+  keyframeUrl,
 }: {
   v?: ShotVersion;
   aspect: string;
   running: boolean;
   label?: string;
   onUse?: () => void;
+  keyframeUrl?: string; // shown as the poster while there's no take yet
 }) {
   const playable = v && isPlayable(v.video_url);
   return (
@@ -1041,6 +1057,19 @@ function TakePlayer({
                 <StatusBadge status="succeeded" />
                 <span className="font-mono text-[0.65rem] text-faint">
                   rendered — preview unavailable (mock)
+                </span>
+              </>
+            ) : keyframeUrl ? (
+              <>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={keyframeUrl}
+                  alt=""
+                  className="absolute inset-0 size-full object-cover"
+                  onError={(e) => (e.currentTarget.style.visibility = "hidden")}
+                />
+                <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2 pb-1.5 pt-4 text-left font-mono text-[0.6rem] text-fg/80">
+                  keyframe — not rendered
                 </span>
               </>
             ) : (

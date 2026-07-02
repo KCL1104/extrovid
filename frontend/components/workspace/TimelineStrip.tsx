@@ -53,7 +53,9 @@ export default function TimelineStrip({
                 const selected = scopedShotIds.includes(shot.id);
                 const prev = sceneShots[i - 1];
                 const prevRendered = prev ? isRendered(versions[prev.id] ?? []) : false;
-                const thumb = take && isPlayable(take.thumbnail_url) ? take.thumbnail_url : null;
+                const thumb =
+                  (take && isPlayable(take.thumbnail_url) ? take.thumbnail_url : null) ??
+                  (isPlayable(shot.keyframe_url) ? shot.keyframe_url : null);
                 const tone = running
                   ? "border-live/60 bg-live/5"
                   : rendered
@@ -97,7 +99,12 @@ export default function TimelineStrip({
                       <div className="aspect-video w-full overflow-hidden rounded bg-bg-soft">
                         {thumb && (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={thumb} alt="" className="size-full object-cover" />
+                          <img
+                            src={thumb}
+                            alt=""
+                            className="size-full object-cover"
+                            onError={(e) => (e.currentTarget.style.visibility = "hidden")}
+                          />
                         )}
                       </div>
                       <p className="truncate text-[0.7rem] text-muted">{shot.purpose}</p>

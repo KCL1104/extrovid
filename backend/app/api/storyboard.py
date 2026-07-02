@@ -62,6 +62,7 @@ async def get_storyboard(project_id: str, session: AsyncSession = Depends(get_se
         if kf is not None:
             read.keyframe_verdict = (kf.review or {}).get("verdict")
             read.keyframe_score = kf.score
+            read.keyframe_url = await asset_service.asset_url(session, kf.image_asset_id)
         out.append(read)
     return out
 
