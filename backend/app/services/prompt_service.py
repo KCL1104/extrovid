@@ -38,6 +38,8 @@ _BASELINE_NEGATIVES = (
     "extra fingers",
     "extra limbs",
     "warped face",
+    "identity drift",
+    "camera jitter",
     "flicker",
     "text artifacts",
     "watermark",
@@ -86,6 +88,14 @@ _REFERENCE_ROLE_CLAUSE = {
 _DEFAULT_STYLE = "cinematic, shallow depth of field"
 _DEFAULT_LIGHTING = "natural, motivated lighting"
 
+# style-agnostic photographic quality tail for STILL keyframes/portraits (lighting and
+# camera/lens language have the highest leverage on image quality; these are the render-
+# quality floor that works for both photoreal and stylized looks)
+_IMAGE_QUALITY_TAIL = (
+    "a single crisp still frame, no motion blur, sharp focus, rich fine detail, "
+    "professional color grading, masterful composition"
+)
+
 
 def compose_shot_prompt(
     shot: Shot,
@@ -95,6 +105,7 @@ def compose_shot_prompt(
     character: CharacterProfile | None = None,
     has_reference_images: bool = False,
     reference_roles: list[str] | None = None,
+    supporting_cast: list[str] | None = None,
     clarifications: list[dict] | None = None,
 ) -> str:
     cam = shot.camera_spec or {}
@@ -109,6 +120,10 @@ def compose_shot_prompt(
             )
         else:
             parts.append("The main subject matches the reference image")
+        # supporting cast whose portraits ride along as extra identity references
+        if supporting_cast:
+            names = ", ".join(dict.fromkeys(supporting_cast))
+            parts.append(f"the supporting cast ({names}) each match their reference portraits")
         # per-reference role clauses tell the model what to take from each non-identity ref
         for clause in dict.fromkeys(
             _REFERENCE_ROLE_CLAUSE[r]
@@ -263,13 +278,12 @@ def compose_keyframe_prompt(
     if style_pack and style_pack.visual_style:
         style_bits.append(style_pack.visual_style)
     style = ", ".join(dict.fromkeys(s for s in style_bits if s))
-    if style:
-        parts.append(f"style: {style}")
-    if vb.get("lighting"):
-        parts.append(f"lighting: {vb['lighting']}")
+    parts.append(f"style: {style or _DEFAULT_STYLE}")
+    lighting = (style_pack.lighting if style_pack else None) or vb.get("lighting")
+    parts.append(f"lighting: {lighting or _DEFAULT_LIGHTING}")
     if vb.get("environment_notes"):
         parts.append(f"setting: {vb['environment_notes']}")
-    parts.append("a single crisp still frame, no motion blur")
+    parts.append(_IMAGE_QUALITY_TAIL)
     return _join(parts)
 
 
@@ -296,4 +310,4 @@ def compose_negative_prompt(
     deduped = list(dict.fromkeys(n for n in negatives if n and n.strip()))
     if not deduped:
         return None
-    return "; ".join(deduped[:8])
+    return "; ".join(deduped[:10])

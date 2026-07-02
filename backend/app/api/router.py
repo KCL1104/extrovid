@@ -15,6 +15,7 @@ from app.api import (
     images,
     memory,
     pipeline,
+    produce,
     projects,
     review,
     roughcut,
@@ -30,6 +31,7 @@ api_router.include_router(review.router)
 api_router.include_router(images.router)
 api_router.include_router(generation.router)
 api_router.include_router(roughcut.router)
+api_router.include_router(produce.router)
 api_router.include_router(memory.router)
 api_router.include_router(cast.router)
 api_router.include_router(director.router)

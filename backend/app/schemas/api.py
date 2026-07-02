@@ -353,6 +353,14 @@ class BatchGenerateRequest(BaseModel):
     continue_from_previous: bool = False
 
 
+class ProduceRequest(BaseModel):
+    """One-click produce run. ``gated`` pauses after newly created keyframes for a board
+    review before video budget is spent; ``auto`` runs straight through to the rough cut."""
+
+    mode: Literal["gated", "auto"] = "gated"
+    continue_from_previous: bool = False
+
+
 class EditShotRequest(BaseModel):
     instruction: str = Field(..., min_length=1)
 

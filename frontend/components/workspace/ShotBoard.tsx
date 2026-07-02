@@ -1,8 +1,8 @@
 "use client";
 
 import { Fragment, useState } from "react";
-import { Film, ImageIcon, Link2, Play } from "lucide-react";
-import type { Character, Scene, Shot, ShotVersion } from "@/lib/api";
+import { Clapperboard, Film, ImageIcon, Link2, Play, Square } from "lucide-react";
+import type { Character, ProduceStatus, Scene, Shot, ShotVersion } from "@/lib/api";
 import { Button, EmptyState, Eyebrow, Panel, Pill, ScoreBadge, Skeleton, StatusBadge, cn } from "@/components/ui";
 import CastChip from "@/components/workspace/CastChip";
 import CostMeter from "@/components/workspace/CostMeter";
@@ -24,6 +24,7 @@ export default function ShotBoard({
   busy,
   generating,
   batchBusy,
+  produce,
   projectId,
   budgetUsd,
   scopedShotIds,
@@ -33,6 +34,8 @@ export default function ShotBoard({
   onGenerate,
   onKeyframes,
   onRenderAll,
+  onProduce,
+  onStopProduce,
   onToggleShotScope,
   onToggleCastScope,
   onAttachCast,
@@ -45,6 +48,7 @@ export default function ShotBoard({
   busy: Record<string, boolean>;
   generating: string[];
   batchBusy: string | null;
+  produce: ProduceStatus | null;
   projectId: string;
   budgetUsd?: number | null;
   scopedShotIds: string[];
@@ -54,6 +58,8 @@ export default function ShotBoard({
   onGenerate: (shotId: string) => void;
   onKeyframes: () => void;
   onRenderAll: (chained: boolean) => void;
+  onProduce: () => void;
+  onStopProduce: () => void;
   onToggleShotScope: (shotId: string) => void;
   onToggleCastScope: (castId: string) => void;
   onAttachCast: (shotId: string, castId: string) => void;
@@ -81,6 +87,25 @@ export default function ShotBoard({
     <div>
       {/* batch toolbar — keyframes are image-priced; chained render queues on upstream takes */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
+        {/* one-click Produce: runs every remaining stage; pauses after fresh keyframes for review */}
+        {produce?.running ? (
+          <Button onClick={onStopProduce} title="Stop the produce run (finished work is kept)">
+            <Square size={14} aria-hidden /> Stop
+          </Button>
+        ) : (
+          <Button
+            onClick={onProduce}
+            disabled={!!batchBusy}
+            title={
+              produce?.state === "paused"
+                ? "Resume: continues from where the run paused"
+                : "Run everything that's missing — portraits, keyframes (pause for review), videos, voiceovers, rough cut"
+            }
+          >
+            <Clapperboard size={14} aria-hidden />
+            {produce?.state === "paused" ? "Continue produce" : "Produce"}
+          </Button>
+        )}
         <Button
           onClick={onKeyframes}
           loading={batchBusy === "keyframes"}
@@ -109,6 +134,13 @@ export default function ShotBoard({
         <CostMeter projectId={projectId} budgetUsd={budgetUsd} refreshKey={shots.length} />
         {staleCount > 0 && (
           <Pill className="text-accent">{staleCount} stale — replanning recommended</Pill>
+        )}
+        {produce && produce.state !== "idle" && produce.state !== "stopped" && (
+          <Pill className={produce.state === "error" ? "text-accent" : produce.running ? "text-run" : undefined}>
+            {produce.running && <span className="mr-1 inline-block size-1.5 rounded-full bg-run pulse-dot" aria-hidden />}
+            produce · {produce.stage ?? produce.state}
+            {produce.detail ? ` — ${produce.detail}` : ""}
+          </Pill>
         )}
       </div>
       {/* live production counts — the board reads as a crew dashboard, not a static gallery */}

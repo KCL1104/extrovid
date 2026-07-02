@@ -96,7 +96,9 @@ async def generate_image(
     )
 
 
-async def edit_image(source_image_url: str, instruction: str) -> ImageResult:
+async def edit_image(
+    source_image_url: str, instruction: str, negative_prompt: str | None = None
+) -> ImageResult:
     """Instruction-based refinement of an existing image (Qwen-Image-Edit).
 
     Closes the spec's previsual iterate loop: refine an approved look frame instead of
@@ -114,6 +116,9 @@ async def edit_image(source_image_url: str, instruction: str) -> ImageResult:
         )
 
     await rate_limit.acquire("image")
+    edit_params: dict = {"n": 1, "watermark": False}
+    if negative_prompt:
+        edit_params["negative_prompt"] = negative_prompt
     body = {
         "model": settings.qwen_image_edit_model,
         "input": {
@@ -124,7 +129,7 @@ async def edit_image(source_image_url: str, instruction: str) -> ImageResult:
                 }
             ]
         },
-        "parameters": {"n": 1, "watermark": False},
+        "parameters": edit_params,
     }
     headers = {
         "Authorization": f"Bearer {settings.dashscope_api_key}",

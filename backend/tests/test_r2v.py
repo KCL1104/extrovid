@@ -8,13 +8,22 @@ def test_r2v_media_never_drops_the_first_frame_seed():
     """A full set of references must not crowd out the continuation/keyframe seed."""
     refs = [f"u{i}" for i in range(5)]
     media = _build_r2v_media(refs, "seed")
-    assert len(media) == 5  # provider's media-array limit
+    assert len(media) == 5  # Wan's media-array limit
     assert sum(1 for m in media if m["type"] == "reference_image") == 4  # one slot reserved
     assert media[-1] == {"type": "first_frame", "url": "seed"}  # seed survives
     # with no seed, references may fill all five slots
     no_seed = _build_r2v_media(refs, None)
     assert len(no_seed) == 5
     assert all(m["type"] == "reference_image" for m in no_seed)
+
+
+def test_r2v_media_happyhorse_capacity():
+    """HappyHorse 1.1 accepts up to 9 media items — the seed slot is still reserved."""
+    refs = [f"u{i}" for i in range(12)]
+    media = _build_r2v_media(refs, "seed", max_media=9)
+    assert len(media) == 9
+    assert sum(1 for m in media if m["type"] == "reference_image") == 8
+    assert media[-1] == {"type": "first_frame", "url": "seed"}
 
 
 async def _project_with_images(client):

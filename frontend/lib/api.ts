@@ -483,6 +483,24 @@ export const generateAllShots = (id: string, continueFromPrevious = false) =>
     body: JSON.stringify({ continue_from_previous: continueFromPrevious }),
   });
 
+// one-click Produce: portraits -> keyframes -> videos -> voiceovers -> rough cut.
+// "gated" pauses after newly created keyframes so the board can be reviewed before
+// video budget is spent; calling again resumes (each stage only does missing work).
+export type ProduceStatus = {
+  state: "idle" | "running" | "paused" | "done" | "error" | "stopped";
+  stage: string | null;
+  detail: string | null;
+  running: boolean;
+};
+export const startProduce = (id: string, mode: "gated" | "auto" = "gated") =>
+  api<ProduceStatus>(`/projects/${id}/produce`, {
+    method: "POST",
+    body: JSON.stringify({ mode }),
+  });
+export const getProduceStatus = (id: string) => api<ProduceStatus>(`/projects/${id}/produce`);
+export const stopProduce = (id: string) =>
+  api<ProduceStatus>(`/projects/${id}/produce/stop`, { method: "POST" });
+
 // keyframe-first: the shot's opening frame as a refinable image before video spend
 export const generateKeyframe = (id: string, shotId: string) =>
   api<LookFrame>(`/projects/${id}/shots/${shotId}/keyframe`, { method: "POST" });

@@ -57,14 +57,17 @@ def _resolve_video_model(settings: Settings, mode: str) -> str:
     }[mode]
 
 
-def _build_r2v_media(refs: list[str], first_frame_url: str | None) -> list[dict]:
+def _build_r2v_media(
+    refs: list[str], first_frame_url: str | None, max_media: int = 5
+) -> list[dict]:
     """Reference-image media for r2v, reserving a slot for the first_frame seed.
 
-    DashScope accepts at most 5 media items. The previous code appended the first_frame only
-    ``if len(media) < 5``, so a full set of 5 references silently dropped the
-    continuation/keyframe seed. Reserving the slot up front keeps the seed authoritative.
+    Wan r2v accepts at most 5 media items; HappyHorse 1.1 accepts up to 9 reference images.
+    The previous code appended the first_frame only ``if len(media) < limit``, so a full set
+    of references silently dropped the continuation/keyframe seed. Reserving the slot up
+    front keeps the seed authoritative.
     """
-    capacity = 5 - (1 if first_frame_url else 0)
+    capacity = max_media - (1 if first_frame_url else 0)
     media: list[dict] = [{"type": "reference_image", "url": u} for u in (refs or [])[:capacity]]
     if first_frame_url:
         media.append({"type": "first_frame", "url": first_frame_url})
@@ -156,7 +159,8 @@ async def _submit_dashscope(
     if negative_prompt:
         params["negative_prompt"] = negative_prompt
     if mode == "r2v":
-        media = _build_r2v_media(refs, first_frame_url)
+        max_media = 9 if settings.video_provider == "happyhorse" else 5
+        media = _build_r2v_media(refs, first_frame_url, max_media=max_media)
         body = {"model": model, "input": {"prompt": prompt, "media": media}, "parameters": params}
     elif mode == "i2v":
         body = {

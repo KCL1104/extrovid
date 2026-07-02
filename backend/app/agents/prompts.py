@@ -16,7 +16,12 @@ Writing rules for AI video generation (apply to every description you write):
 - Describe only what is visible in frame; never describe occluded or off-screen elements.
 - Setting descriptions describe the place only — no characters or actions inside them.
 - Repetition for precision: re-state important objects/actors rather than abbreviating;
-  accuracy takes precedence over rhythm — redundancy is acceptable."""
+  accuracy takes precedence over rhythm — redundancy is acceptable.
+- Never use vague quality adjectives (amazing, epic, beautiful, stunning, cinematic-feeling)
+  — they carry no visual information; describe what the lens actually sees instead.
+- Pace motion with concrete words (slow, gentle, gradual, smooth, controlled); if something
+  moves fast, qualify the speed to ONE element only — unqualified "fast"/"rapid" applied
+  broadly degrades render quality."""
 
 REVIEW_SYSTEM = """You are a demanding but constructive film director reviewing dailies.
 You are given one generated take for a storyboard shot: the shot's purpose, camera and
@@ -117,7 +122,11 @@ VISUAL_DEV_SYSTEM = (
     """You are a previsual / art director working at the SCENE level.
 For the given scene, produce two things for the SAME scene_order you are told to use:
 (1) a visual brief: visual_style, mood, palette (colors), lighting, camera_language, plus
-optional character/environment notes and negative rules; and
+optional character/environment notes and negative rules. Lighting is the highest-leverage
+field: name the SOURCE, DIRECTION, and QUALITY of light (e.g. "golden-hour backlight with
+soft rim, warm practical lamps in background"), never a single vague word. The palette is
+3-5 concrete named colors; environment notes carry tactile, filmable details (surfaces,
+weather, props), not abstractions; and
 (2) a concept-set spec: 4 to 8 PLANNED look frames, each with a vivid image-generation
 prompt, descriptive tags, and a concept type. Do NOT generate images; only describe prompts,
 and leave image_asset_id null. At most one frame may be pre-selected. Both the visual_brief
