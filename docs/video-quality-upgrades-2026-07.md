@@ -68,6 +68,20 @@ authoritative ("preserve composition and colors").
 - Visual-dev brief: lighting must name SOURCE + DIRECTION + QUALITY; palette 3–5 concrete
   colors; environment notes tactile/filmable.
 
+## Deliberately NOT done (future levers, ranked)
+- **Environment/location visual lock** — recurring locations re-render from free text only
+  (no location entity / reference image the way portraits anchor faces). Callers can already
+  pass a `scene`-role reference; an automatic per-scene environment anchor is the next
+  biggest consistency lever.
+- **Numeric diffusion seed** — DashScope video/image calls carry no seed param; identity is
+  re-derived per take from refs + text. Revisit if the provider exposes seeds.
+- **Continuity enforcement** — review stays advisory by locked decision (2026-06-18);
+  a drifted take can still win best-of-N auto-select (scored by quality).
+- **Portrait review gate** — the identity master itself is ungated (keyframes are gated
+  against it). The new lighting/quality floor + negatives mitigate; a gate is the clean fix.
+- `forbidden_changes` is never populated by the cast path — character-specific "never do X"
+  negatives are dead weight until the cast agent emits them.
+
 ## Notes
 - Eval goldens (`app/evals`) will shift (quality tails, always-on negatives, new clauses)
   — expected; re-record on the next eval run.
