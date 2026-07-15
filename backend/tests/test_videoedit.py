@@ -146,3 +146,82 @@ async def test_edit_body_wan_stays_within_wan_doc(monkeypatch):
     assert params["audio_setting"] == "origin"
     ref_items = [m for m in body["input"]["media"] if m["type"] == "reference_image"]
     assert len(ref_items) == 4  # Wan cap
+
+
+async def test_edit_touches_audio_maps_to_audio_setting(client, monkeypatch):
+    """End-to-end through the API: EditShotRequest.touches_audio → submit_shot_edit → the
+    audio_setting handed to the provider. This is the seam ABOVE _submit_dashscope_edit that the
+    body tests can't reach (mock video short-circuits the body), so spy on the provider call."""
+    from app.providers import video_factory
+    from app.services import generate_service
+
+    captured: dict = {}
+    real = video_factory.submit_videoedit
+
+    async def _spy(source_video_url, prompt, *, reference_urls=None, audio_setting="origin"):
+        captured["audio_setting"] = audio_setting
+        return await real(
+            source_video_url, prompt, reference_urls=reference_urls, audio_setting=audio_setting
+        )
+
+    monkeypatch.setattr(generate_service, "submit_videoedit", _spy)
+
+    pid, shot_id, v = await _shot_with_take(client)
+    await client.post(
+        f"/api/projects/{pid}/shots/{shot_id}/versions/{v['id']}/edit",
+        json={"instruction": "relight warmer"},
+    )
+    assert captured["audio_setting"] == "origin"  # default preserves the take's native audio
+
+    await client.post(
+        f"/api/projects/{pid}/shots/{shot_id}/versions/{v['id']}/edit",
+        json={"instruction": "add distant thunder", "touches_audio": True},
+    )
+    assert captured["audio_setting"] == "auto"  # opt-in lets the model re-decide sound
+
+
+async def test_retry_edit_reproduces_audio_setting(client, monkeypatch):
+    """A retried edit reproduces the take's audio behavior: submit_shot_edit records the
+    resolved audio_setting in gen_params, and retry_job maps it back to touches_audio so the
+    re-submit is identical (docstring promise). Uses the failure->retry pattern (real-mode
+    submit faked so the edit job stays RUNNING and can be failed)."""
+    from app.core.config import get_settings
+    from app.providers.video_factory import PollResult, SubmitResult
+    from app.services import generate_service
+
+    pid, shot_id, v = await _shot_with_take(client)
+
+    captured: dict = {}
+
+    async def _spy(source_video_url, prompt, *, reference_urls=None, audio_setting="origin"):
+        captured["audio_setting"] = audio_setting
+        return SubmitResult(task_id="t-edit-fail", model="happyhorse-1.0-video-edit")
+
+    async def _fail_poll(_task_id):
+        return PollResult(status="FAILED", failure="provider exploded")
+
+    s = get_settings()
+    prev = s.use_mock_video
+    s.use_mock_video = False  # keep the edit job RUNNING after submit so it can fail
+    monkeypatch.setattr(generate_service, "submit_videoedit", _spy)
+    monkeypatch.setattr(generate_service, "poll_video", _fail_poll)
+    try:
+        edit = (
+            await client.post(
+                f"/api/projects/{pid}/shots/{shot_id}/versions/{v['id']}/edit",
+                json={"instruction": "add rain sound", "touches_audio": True},
+            )
+        ).json()
+        assert captured["audio_setting"] == "auto"  # first submit carries the intent
+        failed = (
+            await client.post(f"/api/projects/{pid}/jobs/{edit['job_id']}/refresh")
+        ).json()
+        assert failed["job_status"] == "failed"
+
+        captured.clear()
+        r = await client.post(f"/api/projects/{pid}/jobs/{edit['job_id']}/retry")
+        assert r.status_code == 200
+        # retry rebuilt touches_audio=True from gen_params["audio_setting"] == "auto"
+        assert captured["audio_setting"] == "auto"
+    finally:
+        s.use_mock_video = prev
