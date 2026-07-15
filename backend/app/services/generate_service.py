@@ -38,6 +38,7 @@ from app.providers.video_factory import (
     poll_video,
     submit_video,
     submit_videoedit,
+    videoedit_reference_cap,
 )
 from app.services import media_service, review_service
 from app.services.asset_service import asset_url, load_bytes, store_bytes
@@ -797,7 +798,19 @@ async def submit_shot_edit(
     instruction: str,
     *,
     auth: AuthCtx,
+    touches_audio: bool = False,
 ) -> tuple[ShotVersion, GenerationJob]:
+    """Natural-language revision of an existing take into a new take that keeps lineage.
+
+    Anchors the edit on the same identity as the take it revises: generation stores its routing
+    inputs (``character_id`` / ``reference_asset_ids``) in the version's ``gen_params``, so the
+    parent take carries them; we inherit them and hand the video-edit model 0–5 reference
+    images (the doc's canonical case is a reference-driven outfit swap). ``touches_audio`` is
+    the caller's intent — the provider maps it to ``audio_setting`` (``"auto"`` only when the
+    edit is meant to change sound, else ``"origin"`` so a picture note never rewrites the
+    shot's soundtrack). The resolved ``audio_setting`` is recorded in ``gen_params`` so the take
+    reproduces (retry rebuilds intent from it).
+    """
     settings = get_settings()
     await assert_within_cap(session, "video", 1, auth=auth)
     source = await session.get(ShotVersion, source_version_id)
@@ -805,13 +818,37 @@ async def submit_shot_edit(
         raise LookupError("source version has no video to edit")
     source_url = await asset_url(session, source.output_asset_id) or ""
 
+    # Inherit the parent take's identity routing; fall back to the shot's cast lock when the
+    # parent carries none (e.g. it was itself an edit). Reuse the generation resolver (identity
+    # portrait pinned at slot 0), then cap to the video-edit limit — 5, not r2v's 9: the source
+    # video occupies the only video slot, so there is no first_frame to reserve.
+    parent_params = source.gen_params or {}
+    inherited_character = parent_params.get("character_id")
+    character_id = inherited_character or shot.character_id
+    reference_asset_ids = parent_params.get("reference_asset_ids")
+    reference_urls, _cast = await _resolve_reference_urls(
+        session, project_id, reference_asset_ids, character_id, shot=shot
+    )
+    reference_urls = reference_urls[: videoedit_reference_cap(settings)]
+
+    audio_setting = "auto" if touches_audio else "origin"
+
+    routing_note = "videoedit — natural-language revision of the parent take"
+    if reference_urls:
+        anchor = "parent take" if inherited_character else "shot"
+        routing_note += f", {len(reference_urls)} reference image(s) from {anchor}"
+
     version = ShotVersion(
         shot_id=shot.id,
         parent_version_id=source_version_id,
         prompt=instruction,
         status=ShotVersionStatus.DRAFT.value,
-        routing_note="videoedit — natural-language revision of the parent take",
-        gen_params={"instruction": instruction, "source_version_id": source_version_id},
+        routing_note=routing_note,
+        gen_params={
+            "instruction": instruction,
+            "source_version_id": source_version_id,
+            "audio_setting": audio_setting,
+        },
     )
     session.add(version)
     await session.flush()
@@ -821,7 +858,12 @@ async def submit_shot_edit(
     session.add(job)
     await session.flush()
 
-    sub = await submit_videoedit(source_url, instruction)
+    sub = await submit_videoedit(
+        source_url,
+        instruction,
+        reference_urls=reference_urls or None,
+        audio_setting=audio_setting,
+    )
     version.model = sub.model
     job.task_id = sub.task_id
     job.model = sub.model
@@ -868,6 +910,9 @@ async def retry_job(
             params["source_version_id"],
             params["instruction"],
             auth=auth,
+            # reproduce the original take's audio behavior (gen_params stores the resolved
+            # audio_setting; "auto" is the touches_audio=True path)
+            touches_audio=params.get("audio_setting") == "auto",
         )
     return await submit_shot(
         session,

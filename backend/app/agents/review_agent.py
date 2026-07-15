@@ -17,10 +17,24 @@ from app.providers.model_factory import get_model
 
 
 class ReviewSuggestion(BaseModel):
-    """One actionable fix. ``edit`` suggestions are valid wan2.7-videoedit instructions."""
+    """One actionable fix.
+
+    ``kind="edit"`` is a ready-to-run natural-language video-edit instruction for the active
+    provider's video-edit model (happyhorse-1.0-video-edit by default, wan2.7-videoedit under
+    VIDEO_PROVIDER=wan). ``touches_audio`` declares INTENT only — whether the fix is meant to
+    change the shot's sound. DashScope vocabulary stays out of this schema: the provider maps
+    the intent to ``audio_setting`` (``"auto"`` when the edit touches audio, else ``"origin"``
+    to preserve the take's native audio). Default False because most notes are picture-only.
+    """
 
     kind: Literal["edit", "retake"] = "edit"
     instruction: str = Field(..., min_length=1)
+    touches_audio: bool = Field(
+        default=False,
+        description="True ONLY when the fix is meant to change the shot's sound (dialogue, "
+        "Foley, ambient). Picture-only notes (relight, regrade, background swap, wardrobe) "
+        "leave it false so the take's original audio is preserved.",
+    )
 
 
 class ReviewResult(BaseModel):

@@ -74,6 +74,18 @@ def _build_r2v_media(
     return media
 
 
+def videoedit_reference_cap(settings: Settings) -> int:
+    """Max ``reference_image`` items the active provider's video-edit model accepts.
+
+    HappyHorse-1.0-video-edit takes 0–5, Wan's videoedit 0–4 (both per their DashScope API
+    refs). This is a lower cap than r2v's 9/5 for a different reason than r2v's: on the edit
+    path the source video is the only ``video`` slot, so there is no first_frame to reserve —
+    every reference slot is usable. Capping to the active provider keeps VIDEO_PROVIDER=wan
+    from oversending an item Wan would reject.
+    """
+    return 5 if settings.video_provider == "happyhorse" else 4
+
+
 async def submit_video(
     prompt: str,
     *,
@@ -109,14 +121,37 @@ async def submit_video(
     )
 
 
-async def submit_videoedit(source_video_url: str, prompt: str) -> SubmitResult:
-    """Instruction-based edit of an existing take (wan2.7-videoedit / happyhorse video-edit)."""
+async def submit_videoedit(
+    source_video_url: str,
+    prompt: str,
+    *,
+    reference_urls: list[str] | None = None,
+    audio_setting: str = "origin",
+) -> SubmitResult:
+    """Instruction-based edit of an existing take (happyhorse-1.0-video-edit / wan2.7-videoedit).
+
+    ``reference_urls`` are 0–5 identity/outfit/prop anchors sent alongside the source video —
+    the doc's canonical example is a reference-driven outfit swap — closing the gap where the
+    reviewer flags cross-shot drift but the repair path had no way to hand the model the
+    identity anchor. ``audio_setting`` defaults to ``"origin"`` (keep the take's own audio):
+    the rough cut mixes each clip's native audio at ``normalize=0`` and treats it as
+    authoritative, so a picture-only revision must NOT let the model re-decide the soundtrack —
+    the caller opts into ``"auto"`` only when the edit is deliberately about sound. Both
+    provider models accept these fields (see ``_submit_dashscope_edit``).
+    """
     settings = get_settings()
     model = _resolve_video_model(settings, "videoedit")
     if settings.use_mock_video:
         return SubmitResult(task_id="mock-" + uuid.uuid4().hex, model=f"mock:{model}")
 
-    return await _submit_dashscope_edit(settings, model, source_video_url, prompt)
+    return await _submit_dashscope_edit(
+        settings,
+        model,
+        source_video_url,
+        prompt,
+        reference_urls=reference_urls,
+        audio_setting=audio_setting,
+    )
 
 
 async def poll_video(task_id: str) -> PollResult:
@@ -156,6 +191,13 @@ async def _submit_dashscope(
         "duration": duration,
         "prompt_extend": True,
     }
+    if settings.video_provider == "happyhorse":
+        # HappyHorse 1.1 t2v/i2v/r2v default watermark=true (burns "Happy Horse" bottom-right),
+        # confirmed against the per-model DashScope refs (reference/text/image-to-video). Gate
+        # to happyhorse: Wan's generation-path watermark param is unconfirmed, and the Wan body
+        # must stay exactly as-is (VIDEO_PROVIDER=wan green). prompt_extend legitimately stays
+        # on here — it does useful work expanding short shot prompts (unlike the edit path).
+        params["watermark"] = False
     if negative_prompt:
         params["negative_prompt"] = negative_prompt
     if mode == "r2v":
@@ -182,13 +224,36 @@ async def _submit_dashscope(
 
 
 async def _submit_dashscope_edit(
-    settings: Settings, model: str, source_video_url: str, prompt: str
+    settings: Settings,
+    model: str,
+    source_video_url: str,
+    prompt: str,
+    *,
+    reference_urls: list[str] | None = None,
+    audio_setting: str = "origin",
 ) -> SubmitResult:
     await rate_limit.acquire("video")
+    # The source video is the sole ``video`` slot; references (0–5 HappyHorse / 0–4 Wan) ride
+    # alongside it. Upstream orders refs by priority with the identity portrait at slot 0, so
+    # truncating to the provider cap drops only the lowest-priority anchors.
+    cap = videoedit_reference_cap(settings)
+    media: list[dict] = [{"type": "video", "url": source_video_url}]
+    media += [{"type": "reference_image", "url": u} for u in (reference_urls or [])[:cap]]
     body = {
         "model": model,
-        "input": {"prompt": prompt, "media": [{"type": "video", "url": source_video_url}]},
-        "parameters": {"resolution": settings.video_resolution, "prompt_extend": True},
+        "input": {"prompt": prompt, "media": media},
+        # watermark=False: HappyHorse video-edit defaults watermark=true — mirror
+        # image_factory's watermark:False on both image paths. audio_setting defaults "origin"
+        # (keep the take's native audio; see submit_videoedit). prompt_extend is deliberately
+        # dropped: it is NOT a HappyHorse video-edit parameter, and expanding a precise edit
+        # instruction can widen a local change into a global one. Both watermark and
+        # audio_setting are accepted by Wan's videoedit too (wan-video-editing-api-reference),
+        # so neither needs provider gating here.
+        "parameters": {
+            "resolution": settings.video_resolution,
+            "watermark": False,
+            "audio_setting": audio_setting,
+        },
     }
     resp = await request_with_retry(
         "POST",

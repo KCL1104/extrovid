@@ -247,7 +247,13 @@ async def edit_version(
     shot = await _shot_or_404(session, project_id, shot_id)
     try:
         version, job = await generate_service.submit_shot_edit(
-            session, project_id, shot, version_id, body.instruction, auth=auth
+            session,
+            project_id,
+            shot,
+            version_id,
+            body.instruction,
+            auth=auth,
+            touches_audio=body.touches_audio,
         )
     except LookupError as e:
         raise HTTPException(status_code=400, detail=str(e)) from None

@@ -363,6 +363,12 @@ class ProduceRequest(BaseModel):
 
 class EditShotRequest(BaseModel):
     instruction: str = Field(..., min_length=1)
+    # Manual audio override for a note typed in ShotInspector. Default False preserves the
+    # take's native audio (audio_setting "origin"); set true to let the video-edit model
+    # re-decide the shot's sound (audio_setting "auto") when the edit is deliberately about
+    # dialogue/Foley/ambient. Mirrors ReviewSuggestion.touches_audio — intent vocabulary; the
+    # provider maps it, so DashScope's "auto"/"origin" never leaks into the API surface.
+    touches_audio: bool = False
 
 
 class CharacterRead(BaseModel):

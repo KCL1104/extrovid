@@ -33,8 +33,14 @@ outfit"), matching the integration. No new work needed; it is now also provider-
 
 **Research finding: HappyHorse-1.0 is quality-superior.** It ranks **#1 on the Artificial
 Analysis Video Arena** (blind human preference): T2V Elo ~1333–1374, I2V ~1392–1410 — roughly
-**+140 over Wan 2.6's ~1189**. It is an Alibaba model (15B params, Apache-2.0 + commercial),
-with native joint audio synthesis, 7-language lip-sync, 1080p, and fast 8-step inference.
+**+140 over Wan 2.6's ~1189**. It is an Alibaba model that is **closed-source, API-only via
+DashScope**: despite early announcements of an "Apache-2.0 + commercial" release, no weights or
+inference code have shipped, and fal (the official API partner) states plainly it will not be
+open-sourced or licensed. It has native joint audio synthesis, 7-language lip-sync, and 1080p
+output. The architecture figures (≈15B params / 40 layers / 8-step DMD-2 inference) are the
+team's own **vendor-claimed** numbers, **not independently verified**. **This does not change
+the decision** — we consume the hosted API, not the weights — so the numbers are informational
+only.
 
 **Key fact (corrected): HappyHorse is on DashScope / Qwen Cloud**, not a separate API. It is
 listed on the Qwen Cloud model marketplace and Alibaba Cloud Model Studio with the SAME
@@ -64,11 +70,21 @@ required for any mode.
 
 ### Live deploy
 HappyHorse runs on the **existing** `DASHSCOPE_API_KEY` — no new credential. To go live just set
-`USE_MOCK_VIDEO=false` (Railway already has the DashScope key). Resolution defaults to 720P;
-HappyHorse also supports 1080P. To revert to Wan everywhere: `VIDEO_PROVIDER=wan`. The request
-body reuses the existing (working) Wan DashScope shape since both share the endpoint; if a
-HappyHorse-specific field differs (e.g. `watermark`, `seed`, `size` vs `resolution`), confirm
-against a live key and adjust `_submit_dashscope`.
+`USE_MOCK_VIDEO=false` (Railway already has the DashScope key). Resolution defaults to **1080P**
+(`config.py` `video_resolution`); HappyHorse also supports 720P — drop to it via
+`VIDEO_RESOLUTION` if cost matters more than polish. To revert to Wan everywhere:
+`VIDEO_PROVIDER=wan`.
+
+**Request-body conformance (confirmed 2026-07 against the official DashScope API refs — closes
+the earlier "confirm against a live key" TODO).** The video-edit body was written by reusing the
+Wan shape and had drifted from the `happyhorse-1.0-video-edit` spec; `_submit_dashscope_edit`
+now sends `watermark:false` (the model defaults it to `true`), an explicit `audio_setting`
+(default `origin` — keep the take's native audio), and 0–5 `reference_image` items, and it drops
+`prompt_extend` (not a video-edit parameter). The HappyHorse generation path (`_submit_dashscope`,
+t2v/i2v/r2v) also defaults `watermark` to `true`, so it now sends `watermark:false` too, gated to
+`VIDEO_PROVIDER=happyhorse` (Wan's generation-path watermark is unconfirmed; the Wan body is left
+untouched). Wan's videoedit accepts both `watermark` and `audio_setting`, so the edit body needs
+no provider gating for those.
 
 ### Deliberately not adopted (yet)
 HappyHorse's **native joint audio** could replace the separate TTS + ffmpeg mixing path, but that
@@ -77,5 +93,5 @@ out of scope here — the existing audio pipeline stays authoritative. Flagged a
 
 ## Sources
 - Qwen3.7 — [The Agent Frontier](https://qwen.ai/blog?id=qwen3.7); [Qwen 3.7 Plus vs Max benchmark](https://ofox.ai/blog/qwen-3-7-plus-vs-qwen-3-7-max-real-benchmark-2026/)
-- HappyHorse-1.0 — [Qwen Cloud model marketplace](https://www.qwencloud.com/models?output=video&sort=newest); [Alibaba Cloud: HappyHorse video-edit API](https://www.alibabacloud.com/help/en/model-studio/happyhorse-video-edit-api-reference); [Alibaba reveal (CNBC)](https://www.cnbc.com/2026/04/10/alibaba-happyhorse-ai-video-model-benchmark-reveal.html); [GitHub](https://github.com/CalvintheBear/HappyHorse-1.0)
+- HappyHorse-1.0 — [Qwen Cloud model marketplace](https://www.qwencloud.com/models?output=video&sort=newest); [Alibaba Cloud: HappyHorse video-edit API](https://www.alibabacloud.com/help/en/model-studio/happyhorse-video-edit-api-reference); [HappyHorse reference-/text-/image-to-video API refs](https://www.alibabacloud.com/help/en/model-studio/happyhorse-reference-to-video-api-reference); [Alibaba reveal (CNBC)](https://www.cnbc.com/2026/04/10/alibaba-happyhorse-ai-video-model-benchmark-reveal.html); [fal (official API partner) — confirms closed-source, not open/licensable](https://fal.ai/happyhorse-1.0). NOTE: `github.com/CalvintheBear/HappyHorse-1.0` is an **unaffiliated info-collection mirror** (no weights, no inference code, not an official release) — earlier drafts linked it as if official; do not treat it as ground truth.
 - Wan 2.7 / DashScope — [DashScope video-synthesis API reference](https://www.alibabacloud.com/help/en/model-studio/text-to-video-api-reference)

@@ -36,6 +36,9 @@ Judge whether the take satisfies the acceptance rules and the visual direction. 
   video-edit instruction (e.g. "change the background to a rainy street at dusk");
   kind="retake" means regenerate, with the instruction describing what to change in the
   prompt. Never suggest fixes for things you cannot verify from the given facts.
+  Set touches_audio=true ONLY when the fix is meant to change the shot's sound — dialogue,
+  Foley, or ambient audio; picture-only notes (relight, regrade, background swap, wardrobe)
+  leave touches_audio=false so the take's original audio is preserved.
 When a frame from the PREVIOUS shot is attached, also check continuity against it:
 character features (gender, age, facial features, body shape, hairstyle), wardrobe,
 palette and lighting should remain consistent unless the script changes them, and the
