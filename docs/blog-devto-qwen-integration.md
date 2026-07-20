@@ -1,190 +1,69 @@
 ---
-title: "One prompt in, a finished film out: running an entire AI video pipeline on Qwen Cloud"
+title: "One prompt in, a finished film out: building an AI director on Qwen Cloud"
 published: false
-description: "How we wired every model call in an AI director/editor — script, images, voice, and video — to Alibaba's Qwen Cloud (DashScope) behind a single provider seam, and the integration gotchas we hit along the way."
-tags: ai, python, qwen, alibabacloud
+description: "How extrovid turns a single line of text into an edited short — with every model call, from script to final video, running on Alibaba's Qwen Cloud (DashScope)."
+tags: ai, qwen, alibabacloud, video
 # cover_image: replace with a screenshot of the architecture diagram (docs/architecture.html)
 ---
 
-I've been building **[extrovid](https://www.extrovid.xyz)** — an AI-native director and editor. You give it one line of text, and it writes the brief and script, casts a consistent cast, develops a look, boards the shots, generates and reviews the video, adds voiceover, and hands you an edited rough cut. One prompt to a finished short.
+I've been building **[extrovid](https://www.extrovid.xyz)** — an AI-native director and editor. You give it one line of text, and it does the rest: it writes the brief and script, casts a consistent cast, develops a look, boards the shots, generates and reviews the video, adds voiceover, and hands you an edited rough cut. One prompt to a finished short, with a director you can talk to at every step.
 
-The interesting engineering story isn't any single model — it's that **every model call in the pipeline runs on Qwen Cloud (Alibaba DashScope)**, from the LLM that writes the script to the model that renders the video, all behind one seam that lets the whole thing also run offline for free. This post is about that integration.
+The interesting part isn't any single model. It's that **every creative decision in the pipeline is made by a model on Qwen Cloud (Alibaba DashScope)** — the LLM that writes the script, the model that draws each frame, the voice that narrates, and the model that renders the video. This post is a tour of how those pieces fit together.
 
-Here's the pipeline, and which Qwen model does each job:
+## The whole crew is a Qwen model
 
-```
-idea → brief → script → cast → look-dev → storyboard → shots → voiceover → rough cut → publish
-```
+extrovid is built like a film crew, and every role is played by a model on Qwen Cloud:
 
-| Stage | Model on Qwen Cloud |
+| Job on set | Model on Qwen Cloud |
 |---|---|
-| Script writing | `qwen3.7-max` (the flagship) |
-| Every other agent (brief, cast, look-dev, storyboard, clarify, revise, director, review) | `qwen3.7-plus` |
-| Images (concept frames, keyframes, portraits) | `wan2.7-image-pro` (up to 4K) |
-| Image edits | `wan2.7-image-pro` (unified gen + edit) |
+| Writing the script | `qwen3.7-max` — the flagship, for the one output that carries the whole film |
+| Every other agent (brief, cast, look-dev, storyboard, director, review) | `qwen3.7-plus` — cheaper, huge context, used everywhere else |
+| Concept frames, storyboard keyframes, cast portraits | `wan2.7-image-pro` (up to 4K) |
 | Voiceover | `qwen3-tts` |
-| Video (t2v / i2v / r2v / edit) | **HappyHorse** or **Wan 2.7** |
+| Rendering the shots | **HappyHorse** or **Wan 2.7** (text-, image-, and reference-to-video) |
 
-Six model families, four modalities, one API key. Let me show you how it's wired.
+Six model families, four modalities — text, image, voice, and video — all reached through **one API key and one endpoint**. That single-vendor coherence turned out to be a real advantage: no juggling five providers, five billing accounts, and five sets of quirks. One key, one place to reason about cost, one place to reason about latency.
 
-## The core idea: one provider seam, mock ⇄ real
+## Talking to Qwen: one endpoint, typed answers
 
-Before any model integration, I made one architectural decision that paid for itself ten times over: **every model call goes through a provider "seam" gated by a `USE_MOCK_*` flag.** Flip the flag and the exact same call either hits real Qwen Cloud or a deterministic offline mock.
+DashScope exposes an **OpenAI-compatible endpoint**, which means the planning agents can speak to Qwen through the same tooling the rest of the ecosystem already uses. On top of that, extrovid uses a typed agent framework, so the models don't just return prose — they return **structured, validated data**: a script with numbered scenes, a cast list with consistent character descriptions, a storyboard as machine-readable shots. The brief becomes the script, the script becomes the cast, the cast becomes portraits — each stage's structured output feeds the next.
 
-Here's the entire LLM seam:
+That structure is what lets the pipeline be a real pipeline instead of a pile of chat prompts. And it's why the planning phase can stream back to the UI **token by token**, stage by stage, so you watch the film get planned in real time rather than staring at a spinner.
 
-```python
-# app/providers/model_factory.py
-from pydantic_ai.models.function import FunctionModel
-from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
-from pydantic_ai.providers.alibaba import AlibabaProvider
+One integration lesson worth passing on: Qwen3 models run in a "thinking mode" by default that's excellent for reasoning, but it conflicts with the strict "you *must* return this exact schema" mode that structured-output frameworks rely on. Turning thinking mode off for the planning agents made their output deterministic and reliable. If you're getting Qwen to emit strict JSON or tool calls, that's the knob to reach for.
 
-def get_model(model_name: str | None = None) -> Model:
-    settings = get_settings()
-    if settings.use_mock_llm:
-        # deterministic mock — no network, no key, no cost
-        return FunctionModel(dispatch_mock, stream_function=dispatch_mock_stream)
+## Images and voice
 
-    return OpenAIChatModel(
-        model_name or settings.qwen_model,
-        provider=AlibabaProvider(
-            api_key=settings.dashscope_api_key,
-            base_url=settings.dashscope_base_url,
-        ),
-        settings=OpenAIChatModelSettings(extra_body={"enable_thinking": False}),
-    )
-```
+Once the plan exists, it needs to become something you can see and hear. `wan2.7-image-pro` draws the visual world — cast portraits so a character has a face, look-development frames so the film has a mood, and a keyframe for every shot in the storyboard. Because the Wan 2.7 image family handles both generation and editing, refining a frame later is the same kind of call, not a bolt-on service. Voiceover comes from `qwen3-tts`, one narration line per shot.
 
-Two things worth calling out:
+## Video: the slow, interesting part
 
-1. **PydanticAI ships an `AlibabaProvider`.** DashScope exposes an OpenAI-compatible endpoint (`https://dashscope-intl.aliyuncs.com/compatible-mode/v1`), so you get typed, schema-validated agent outputs from Qwen with almost no glue code. Every agent — brief, cast, storyboard, director — is a `pydantic_ai.Agent` whose model comes from `get_model()`.
+Video is where the integration gets genuinely interesting, because rendering a shot isn't instant — it takes minutes. Qwen Cloud handles this the right way: it's **asynchronous**. You submit a shot, get a ticket back immediately, and check on it until it's ready. That shape influences the whole backend, which has to track jobs in flight, notice when they finish, and stream live progress to the UI as each shot lands.
 
-2. **`model_name` is an override.** The script agent routes to the flagship `qwen3.7-max` (worth the cost for the one output that carries the whole film), while the dozen other agents use the cheaper, 1M-context `qwen3.7-plus`. Same seam, different model id.
+A few things I'm especially happy with here:
 
-Because the mock path is deterministic, the **entire pipeline runs offline** — which is how ~236 backend tests run with no key and no spend. More on why that matters at the end.
+- **Two video models, one path.** extrovid can render on **HappyHorse** (an Alibaba model that currently ranks #1 on the Artificial Analysis Video Arena, with native audio and multi-language lip-sync) or fall back to **Wan 2.7** — a single config switch, because both live on the same Qwen Cloud transport. No second integration.
+- **Best-of-N with an AI "dailies" review.** Each shot is rendered several times, and a Qwen model reviews the takes and picks the winner automatically — the way a director watches dailies and chooses. You see it happen as a little status note: *"picked best of 3."* The machine owns the quality-control work, not just the generation.
+- **Continuity that actually holds.** Each shot is seeded with the previous shot's final frame and the cast portraits, so a character's face and the film's look carry across clips that were generated independently. Continuity turns out to be an architecture problem, not a prompting one.
 
-## Gotcha #1: Qwen3 "thinking mode" vs. structured output
+The one hard-won operational lesson: asynchronous results don't wait for you forever. A finished video's download link expires, so the backend has to fetch it and re-host it in your own storage promptly — otherwise you've paid to generate something you can no longer retrieve. Planning for "fetch and keep" from the start saved a lot of pain.
 
-This one cost me an afternoon, so here's the fix up front. See that `enable_thinking: False` in the snippet above?
+## The trick that made all of this pleasant to build
 
-PydanticAI gets structured output by forcing a tool call — it sends `tool_choice=required` under the hood so the model *must* return your schema. But **Qwen3 models run in "thinking mode" by default, and thinking mode rejects `tool_choice=required`.** You get an API error instead of a clean parse.
+Every model in extrovid sits behind a **provider seam** — a thin boundary where a single setting decides whether a call hits real Qwen Cloud or a fast, deterministic offline stand-in. Flip one flag and the exact same pipeline runs with no key, no network, and no cost.
 
-The fix is one line in `extra_body`:
+This one decision paid for itself over and over:
 
-```python
-settings=OpenAIChatModelSettings(extra_body={"enable_thinking": False})
-```
+- **The whole thing is testable offline.** The full idea-to-cut pipeline runs in tests with zero spend, because every model has an offline counterpart behind the same boundary.
+- **Iterating is free.** Image and video generation are billable; developing against the offline stand-ins (plus per-user daily caps in production) keeps costs bounded until you actually want pixels.
+- **Going live is a config change, not a rewrite.** The offline and real providers are interchangeable, so switching to production Qwen Cloud is flipping a flag and adding a key.
 
-Disable thinking mode and structured planning becomes deterministic and reliable. If you're pairing Qwen3 with any framework that leans on forced tool calls for JSON output (PydanticAI, Instructor, etc.), this is the setting you're looking for.
+If you take one thing from this post, let it be that: when you build on a paid, multi-modal cloud, build the seam that lets you also run without it. It's the cheapest thing you'll build and the one that lets you move fastest.
 
-## Images and voice: the multimodal-generation endpoint
+## Wrapping up
 
-Concept frames, storyboard keyframes, and cast portraits all come from `wan2.7-image-pro` on DashScope's synchronous multimodal-generation endpoint. The seam is the same shape — a `USE_MOCK_IMAGE` flag swaps in a tiny valid PNG so the image flow is testable offline:
+extrovid is an attempt to close the gap between "a model can make a shot" and "a tool can make a film" — the brief, the casting, the continuity, the take selection, the cut. Qwen Cloud made that feasible for a small project: one vendor covering text, image, voice, and video, reachable through one key, coherent enough that a single person could wire the whole crew together.
 
-```python
-# aspect ratio → pixel size, accepted by wan2.7-image-pro on DashScope
-_SIZE_BY_ASPECT = {
-    "9:16": "928*1664",
-    "16:9": "1664*928",
-    "1:1":  "1328*1328",
-    "4:5":  "1140*1472",
-}
-```
+If you're building anything multi-modal for this hackathon, Qwen Cloud is a genuinely strong foundation to build the whole pipeline on — not just one piece of it.
 
-Voiceover works identically through `qwen3-tts`, gated by `USE_MOCK_TTS` (the mock returns decodable silent WAV bytes so ffmpeg can still mix a test cut). One nice property of the Wan 2.7 image family: generation and editing are unified, so refining a frame is a drop-in model call rather than a separate service.
-
-## Video: the async submit → poll transport
-
-Video is where the integration gets more interesting, because video generation is **slow** — you don't get a response in one request. DashScope's video-synthesis API is asynchronous: you submit a job, get a `task_id` back immediately, then poll for the result.
-
-The magic header is `X-DashScope-Async: enable`:
-
-```python
-def _dashscope_async_headers(settings):
-    return {
-        "Authorization": f"Bearer {settings.dashscope_api_key}",
-        "Content-Type": "application/json",
-        "X-DashScope-Async": "enable",
-    }
-
-async def _submit_dashscope(settings, model, mode, prompt, ...):
-    body = {"model": model, "input": {"prompt": prompt}, "parameters": params}
-    resp = await request_with_retry(
-        "POST", settings.dashscope_video_url,
-        headers=_dashscope_async_headers(settings), json=body, timeout_sec=60,
-    )
-    resp.raise_for_status()
-    return SubmitResult(task_id=resp.json()["output"]["task_id"], model=model)
-
-async def poll_video(task_id: str) -> PollResult:
-    # GET /api/v1/tasks/{task_id} → PENDING | RUNNING | SUCCEEDED | FAILED
-    ...
-```
-
-One seam, two providers. The `VIDEO_PROVIDER` flag chooses between **HappyHorse** (default — an Alibaba model that ranks #1 on the Artificial Analysis Video Arena, with native audio and 7-language lip-sync) and **Wan 2.7**. Both ride the *same* submit→poll transport and the *same* `DASHSCOPE_API_KEY`; the flag only maps abstract modes (t2v / i2v / r2v / edit) to model ids:
-
-```python
-def _resolve_video_model(settings, mode):
-    if settings.video_provider == "happyhorse":
-        return {"t2v": "happyhorse-1.1-t2v", "i2v": "happyhorse-1.1-i2v",
-                "r2v": "happyhorse-1.1-r2v", "videoedit": "happyhorse-1.0-video-edit"}[mode]
-    return {"t2v": "wan2.7-t2v", ...}[mode]
-```
-
-The mode is inferred from what you hand it: references → r2v, a first frame → i2v, prompt only → t2v. That r2v/i2v path is what gives us **keyframe-first continuity** — each shot inherits the previous shot's last frame as a seed, so a character's face and the film's look hold across independently generated clips.
-
-We also generate video **best-of-N**: several takes per shot, then an AI "dailies" review picks the winning take automatically. The whole editorial decision happens server-side and surfaces in the UI as a little trace chip — *"picked best of 3."*
-
-## Gotcha #2: async jobs need a reconciler (and it has opinions)
-
-Submit→poll means you can't just `await` a video. Something has to keep polling `RUNNING` jobs until they finish, then download and re-host the result. That's a background reconciler loop, started in the FastAPI lifespan:
-
-```python
-async def _reconciler_loop():
-    interval = get_settings().video_reconcile_interval_sec
-    while True:
-        await asyncio.sleep(interval)
-        try:
-            async with SessionLocal() as session:
-                await reconcile_running(session)   # poll + ingest finished jobs
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            log.warning("reconciler iteration failed; continuing", exc_info=True)
-
-@asynccontextmanager
-async def lifespan(app):
-    task = None
-    if not settings.use_mock_video:          # only run against real Qwen Cloud
-        task = asyncio.create_task(_reconciler_loop())
-    yield
-    if task:
-        task.cancel()
-```
-
-Two hard-won lessons live in that snippet:
-
-- **It's in-process with no leader election, so it must be pinned to a single instance.** If you run two backend replicas, you get two reconcilers double-polling every job — duplicate DashScope calls, state races, wasted spend. This one detail shapes the whole deployment topology (single always-on instance; only the frontend scales horizontally).
-- **DashScope result URLs expire in ~24 hours.** The reconciler *must* download the bytes and re-upload them to your own object storage inside that window, or the asset is gone and you're paying to regenerate it. "Download-then-rehost" isn't optional — it's the contract.
-
-Also note the guard: the reconciler only starts when `use_mock_video` is false. Offline, there are no async jobs to reconcile, so the loop stays dormant — the seam again.
-
-## Why the seam was worth it
-
-Wiring everything through one mock⇄real seam gave me three things that made the Qwen integration genuinely pleasant to build on:
-
-1. **Offline, deterministic tests.** The full idea→cut pipeline runs in CI with zero network and zero cost, because every provider has a deterministic mock behind the same interface.
-2. **Cost safety while iterating.** Video and image generation are billable; developing against mocks (plus per-user daily caps in production) keeps spend bounded. You flip to real Qwen Cloud only when you actually want pixels.
-3. **One code path to production.** The mock and the real provider satisfy the *same* function signatures, so "make it real" is an env change, not a rewrite. `USE_MOCK_LLM=false`, add `DASHSCOPE_API_KEY`, done.
-
-## Takeaways if you're integrating Qwen
-
-- **Use the OpenAI-compatible endpoint.** `dashscope-intl.aliyuncs.com/compatible-mode/v1` + PydanticAI's `AlibabaProvider` gives you typed agents with almost no glue.
-- **Set `enable_thinking: False` when you need forced-tool structured output** from Qwen3.
-- **Pick the right tier per call.** `qwen3.7-max` for the one output that carries the product; `qwen3.7-plus` (cheaper, 1M context) for everything else.
-- **Treat video as async from day one.** `X-DashScope-Async: enable`, a single-instance reconciler, and download-then-rehost before the 24h URL expiry.
-- **Build the mock seam first.** It's the cheapest thing you'll build and the one that lets you move fast against a paid, multi-modal cloud.
-
-extrovid is open source and the whole pipeline runs offline out of the box (`USE_MOCK_*=true` by default), so you can clone it, read the seams, and flip on the ones you want to see live. If you're building anything multi-modal on Qwen, I hope the patterns above save you the afternoon they cost me.
-
-*Built with FastAPI + PydanticAI, Next.js, and Qwen Cloud / Alibaba DashScope end to end.*
+*Built with Qwen Cloud / Alibaba DashScope end to end.*
